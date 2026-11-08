@@ -180,7 +180,7 @@ A chave é construída com:
 | muito bom | 590 |
 | bom | 454 |
 | recomendo | 440 |
-| excelente | 282 |
+| excelente | 283 |
 | super recomendo | 158 |
 | ok | 151 |
 | otimo produto | 143 |
@@ -234,7 +234,7 @@ A estratégia de deduplicação na recuperação será implementada e avaliada n
 | Estatística | Caracteres |
 |---|---:|
 | Quantidade de documentos | 42.138 |
-| Média | 69,09 |
+| Média | 69,08 |
 | Mediana | 54 |
 | Percentil 90 | 162 |
 | Percentil 95 | 193 |
@@ -281,7 +281,7 @@ Cada avaliação será representada por um único documento.
 
 **Alternativa descartada:** depender apenas da execução manual do pipeline.
 
-**Evidência:** 20 testes aprovados, contemplando a construção de documentos e a geração de chaves de deduplicação.
+**Evidência:** 20 testes aprovados, contemplando construção de documentos, chaves de deduplicação, detecção de letras e consolidação de `review_id`.
 
 Comando de execução:
 
@@ -340,27 +340,69 @@ Na versão inicial, respostas de síntese deverão restringir suas conclusões �
 
 ---
 
-## 8. Próximas decisões — Embeddings e RAG
+## 8. Embeddings e indexação vetorial — implementados
 
-As decisões abaixo fazem parte do planejamento e ainda dependem de implementação e validação.
+### 8.1. Modelo de embeddings
 
-### 8.1. Embeddings
+**Decisão:** utilizar `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, executado localmente por meio da biblioteca Sentence Transformers.
 
-**Abordagem prevista:** utilizar Sentence Transformers com um modelo multilíngue adequado a textos em português.
+**Justificativa:** suporte multilíngue, incluindo português, geração local de vetores sem custo de API e dimensão de 384, adequada à primeira implementação do projeto.
 
-**Justificativa inicial:** permitir a geração local de embeddings e reduzir a dependência de serviços externos.
+**Alternativa descartada:** iniciar com embeddings de uma API externa, que acrescentaria dependência de serviço e custos potenciais antes de validar a recuperação.
 
-**Pendente:** selecionar o modelo, verificar sua dimensão vetorial e avaliar a qualidade da recuperação.
+**Evidência:** modelo carregado com sucesso em CPU; embeddings gerados para os 42.138 documentos. A consulta exploratória `produto não chegou` retornou documentos semanticamente compatíveis. Isso confirma o funcionamento inicial, mas não estabelece superioridade do modelo nem qualidade geral de recuperação.
 
-### 8.2. Armazenamento vetorial
+**Configuração:** embeddings normalizados (`normalize_embeddings=True`), lotes de 128 documentos e dimensão vetorial de 384.
 
-**Abordagem prevista:** ChromaDB local.
+### 8.2. Banco vetorial e persistência
 
-**Justificativa inicial:** simplicidade de implantação, persistência local e integração com Python.
+**Decisão:** utilizar ChromaDB com armazenamento local persistente em `data/chroma/`, coleção `olist_reviews` e métrica de distância cosseno.
 
-**Pendente:** implementar a coleção, indexar os documentos e validar a persistência.
+**Justificativa:** implementação direta em Python, persistência entre execuções e armazenamento de documentos e metadados para rastreabilidade.
 
-### 8.3. Recuperação semântica
+**Alternativa descartada:** utilizar infraestrutura vetorial remota ou serviço gerenciado nesta fase, que acrescentaria complexidade operacional sem necessidade demonstrada.
+
+**Evidência:** indexação concluída e validação de `collection.count()` com 42.138 documentos; métrica `cosine` confirmada na configuração da coleção.
+
+O índice preserva os documentos e os metadados `order_ids`, `review_score`, `review_creation_date`, `n_chars` e `dedup_key`; o identificador da coleção para cada documento é `review_id`.
+
+### 8.3. Construção e validação do índice
+
+**Decisão:** executar a indexação por lotes, com `upsert`, opção explícita `--reset` para reconstrução e validação de contagem, métrica e consulta exploratória ao final.
+
+**Justificativa:** limitar o uso de memória, permitir repetição da carga por identificador e detectar problemas básicos antes da etapa de recuperação.
+
+**Alternativa descartada:** carregar todos os embeddings de uma vez ou reconstruir automaticamente a coleção em toda execução.
+
+**Evidência da execução em Linux/CPU:**
+
+| Indicador | Resultado |
+|---|---|
+| Script | `src/build_index_data.py` |
+| Modelo | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` |
+| Dimensão dos embeddings | 384 |
+| Tamanho do lote | 128 |
+| Lotes processados | 330 |
+| Documentos indexados | 42.138 |
+| Métrica de distância | Cosseno |
+| Dispositivo | CPU |
+| Tempo total registrado | 1.905,4 segundos (aprox. 31 min e 45 s) |
+| Consulta de validação | `produto não chegou` |
+| Similaridades exibidas | 0,994; 0,990; 0,990 |
+
+A similaridade exibida foi calculada como `1 - distância cosseno`. Valores maiores indicam maior proximidade entre os vetores.
+
+Os três primeiros resultados exibiram o mesmo texto (`o produto não chegou`), com notas iguais a 1. **Isso não equivale a três evidências textuais independentes** e confirma a necessidade de deduplicação na recuperação.
+
+A consulta é uma verificação funcional, não uma avaliação formal da qualidade do recuperador.
+
+**Limitações operacionais:** `--reset` exclui a coleção antes de reconstruí-la; falhas durante a execução podem deixar uma coleção incompleta. O uso de `upsert` não remove automaticamente documentos que tenham desaparecido do CSV. O diretório `data/chroma/` permanece fora do versionamento Git.
+
+---
+
+## 9. Próximas decisões — Recuperação, geração e avaliação
+
+### 9.1. Recuperação semântica
 
 **Abordagem prevista:**
 
@@ -372,9 +414,9 @@ As decisões abaixo fazem parte do planejamento e ainda dependem de implementaç
 - Controlar redundância utilizando `dedup_key`.
 - Selecionar evidências para a construção do contexto.
 
-**Pendente:** avaliar relevância, cobertura temática e tempo de recuperação.
+**Pendente:** implementar o recuperador, medir relevância, cobertura temática e tempo de recuperação. A busca exploratória realizada na indexação não substitui esses testes.
 
-### 8.4. Respostas fundamentadas
+### 9.2. Respostas fundamentadas
 
 **Abordagem prevista:** gerar respostas utilizando exclusivamente o contexto recuperado, com identificação das avaliações utilizadas.
 
@@ -386,7 +428,7 @@ As decisões abaixo fazem parte do planejamento e ainda dependem de implementaç
 
 **Pendente:** implementar e testar o mecanismo de abstenção.
 
-### 8.5. Avaliação
+### 9.3. Avaliação
 
 **Abordagem prevista:** conjunto de aproximadamente 12 perguntas, incluindo consultas relevantes e fora do escopo.
 
@@ -403,7 +445,7 @@ Os resultados orientarão a escolha dos parâmetros finais do RAG.
 
 ---
 
-## 9. Estado atual do projeto
+## 10. Estado atual do projeto
 
 **Concluído:**
 
@@ -413,8 +455,8 @@ Os resultados orientarão a escolha dos parâmetros finais do RAG.
 - Análise exploratória das avaliações.
 - Implementação do pipeline de preparação.
 - Geração da base com 42.138 documentos.
-- Validação de integridade e testes unitários.
+- Validação de integridade e 20 testes unitários aprovados.
+- Geração local dos embeddings e indexação de 42.138 avaliações no ChromaDB.
+- Validação da métrica cosseno, contagem da coleção e consulta exploratória.
 
-**Próxima etapa:** seleção do modelo de embeddings e implementação da indexação vetorial no ChromaDB.
-
-As decisões desta etapa serão acrescentadas ao documento após validação experimental.
+**Próxima etapa:** implementar `src/retrieve.py`, com processamento explícito das perguntas, recuperação de candidatos, controle de redundância e apresentação das evidências. Depois, avaliar a qualidade da recuperação antes de integrar a LLM.

@@ -1,11 +1,12 @@
+
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
 
-# Ambiente virtual
+# Virtual environments
 .venv/
 venv/
 env/
@@ -13,7 +14,7 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Credenciais
+# Credentials
 .env
 .env.*
 !.env.example
@@ -22,14 +23,9 @@ env/
 .vscode/
 .idea/
 
-# Arquivos do sistema
+# Operating system
 .DS_Store
 Thumbs.db
-
-# Python tooling
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 
 # Model artifacts
 *.pkl
@@ -40,9 +36,16 @@ Thumbs.db
 *.temp
 *.log
 
-
-# Dados e índices locais
-data/raw/
+# Raw datasets
+data/raw/*
 !data/raw/.gitkeep
-data/processed/
-chroma_db/
+
+# Processed datasets
+data/processed/*
+!data/processed/.gitkeep
+
+# Local vector database
+data/chroma/
+
+# Internal project organization
+docs/organizacao/

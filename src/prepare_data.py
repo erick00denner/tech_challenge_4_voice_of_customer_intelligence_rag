@@ -47,7 +47,6 @@ def build_document(row: pd.Series) -> str:
     return f"{title} {comment}"
 
 
-
 def create_dedup_key(text: str) -> str:
     """Create an accent-insensitive key for retrieval deduplication."""
     normalized = unicodedata.normalize("NFKD", text.casefold())

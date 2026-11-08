@@ -31,7 +31,7 @@ def copy_reviews(source_dir: Path) -> Path:
 
 
 def main() -> None:
-    """Download the dataset and prepare the reviews CSV."""
+    """Download the dataset and copy the reviews CSV."""
     source_dir = download_dataset()
     destination = copy_reviews(source_dir)
 
