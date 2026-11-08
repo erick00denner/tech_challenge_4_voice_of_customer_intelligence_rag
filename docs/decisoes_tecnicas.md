@@ -1,4 +1,3 @@
-
 # Decisões Técnicas — Voice of Customer Intelligence com RAG
 
 ## 1. Objetivo
@@ -137,7 +136,7 @@ A base final contém 42.138 documentos.
 
 O comprimento `n_chars` será preservado como metadado.
 
-Critérios adicionais de suficiência das evidências serão avaliados durante os testes de recuperação.
+Na consulta `não recebi o produto`, os oito primeiros resultados tinham menos de 30 caracteres, o que sugere que textos curtos podem dominar o topo do ranking. O efeito será medido na avaliação da recuperação (seção 10.1).
 
 ---
 
@@ -197,7 +196,7 @@ A chave é construída com:
 | chegou antes do prazo | 56 |
 | ainda nao recebi o produto | 51 |
 
-A estratégia de deduplicação na recuperação será implementada e avaliada na etapa RAG.
+A deduplicação na recuperação foi implementada e é descrita na seção 9.
 
 ---
 
@@ -275,13 +274,13 @@ Cada avaliação será representada por um único documento.
 
 ### 6.2. Testes unitários
 
-**Decisão:** utilizar `pytest` para testar funções de preparação textual.
+**Decisão:** utilizar `pytest` para testar funções de preparação textual e de recuperação.
 
 **Justificativa:** garantir que alterações futuras não comprometam regras já validadas.
 
 **Alternativa descartada:** depender apenas da execução manual do pipeline.
 
-**Evidência:** 20 testes aprovados, contemplando construção de documentos, chaves de deduplicação, detecção de letras e consolidação de `review_id`.
+**Evidência:** a execução de `python -m pytest -q` concluiu com **41 testes aprovados** (20 de preparação e 21 de recuperação). Os testes cobrem construção de documentos, chaves de deduplicação, detecção de letras, consolidação de `review_id`, deduplicação na recuperação, expansão adaptativa de candidatos, flags de retorno e tratamento de entradas inválidas.
 
 Comando de execução:
 
@@ -308,7 +307,7 @@ Portanto, os documentos indexados não representam proporcionalmente a distribui
 
 A nota atribuída é um indicador aproximado de satisfação, mas não constitui um rótulo confiável do conteúdo semântico.
 
-Uma nota baixa não garante que o texto descreva uma reclamação, assim como uma nota alta não impede a presença de críticas.
+Uma nota baixa não garante que o texto descreva uma reclamação, assim como uma nota alta não impede a presença de críticas. Na consulta `não recebi o produto`, por exemplo, um dos resultados (`Não entregaram Não recebi o produto`) tem nota 3.
 
 ### 7.3. Possível truncamento
 
@@ -353,6 +352,8 @@ Na versão inicial, respostas de síntese deverão restringir suas conclusões �
 **Evidência:** modelo carregado com sucesso em CPU; embeddings gerados para os 42.138 documentos. A consulta exploratória `produto não chegou` retornou documentos semanticamente compatíveis. Isso confirma o funcionamento inicial, mas não estabelece superioridade do modelo nem qualidade geral de recuperação.
 
 **Configuração:** embeddings normalizados (`normalize_embeddings=True`), lotes de 128 documentos e dimensão vetorial de 384.
+
+**Pendente:** verificar se o documento mais longo da base (228 caracteres) cabe no limite de 128 tokens do modelo, tokenizando-o e registrando o resultado. Textos acima do limite seriam truncados pelo modelo na geração do embedding.
 
 ### 8.2. Banco vetorial e persistência
 
@@ -400,63 +401,134 @@ A consulta é uma verificação funcional, não uma avaliação formal da qualid
 
 ---
 
-## 9. Próximas decisões — Recuperação, geração e avaliação
+## 9. Recuperação semântica — implementada
 
-### 9.1. Recuperação semântica
+### 9.1. Estratégia de recuperação
 
-**Abordagem prevista:**
+**Decisão:** implementar a recuperação em `src/retrieve.py`, com normalização de espaços da pergunta, geração local do embedding, busca por similaridade cosseno e seleção de avaliações textualmente distintas por `dedup_key`.
 
-- Processar explicitamente a pergunta do usuário.
-- Gerar o embedding da consulta.
-- Recuperar documentos por similaridade.
-- Comparar top-k de 10, 20 e 30.
-- Calibrar um limiar mínimo de similaridade.
-- Controlar redundância utilizando `dedup_key`.
-- Selecionar evidências para a construção do contexto.
+**Justificativa:** recuperar evidências relevantes e evitar que comentários equivalentes ocupem várias posições do contexto.
 
-**Pendente:** implementar o recuperador, medir relevância, cobertura temática e tempo de recuperação. A busca exploratória realizada na indexação não substitui esses testes.
+**Alternativa descartada:** utilizar diretamente os primeiros `top_k` resultados do ChromaDB, sem deduplicação.
 
-### 9.2. Respostas fundamentadas
+**Evidência:** na consulta `não recebi o produto`, o recuperador retornou 10 textos distintos após examinar 200 candidatos. Os resultados foram ordenados por similaridade (de 1,000 a 0,930) e exibiram `review_id`, `order_ids`, nota e texto.
 
-**Abordagem prevista:** gerar respostas utilizando exclusivamente o contexto recuperado, com identificação das avaliações utilizadas.
+**Limitação — transformação da pergunta:** a etapa atual de processamento da consulta limita-se à normalização de espaços. O enunciado pede que a transformação da pergunta seja demonstrada. **Pendente:** definir e implementar uma etapa adicional, como a extração de filtros a partir da pergunta (por exemplo, "clientes insatisfeitos" associado a `review_score ≤ 2`, usando o metadado do índice) ou a reescrita da consulta.
 
-**Tratamento de insuficiência previsto:**
+### 9.2. Expansão adaptativa e limites
 
-1. Limiar mínimo de similaridade.
-2. Quantidade mínima de evidências relevantes, conforme o tipo de pergunta.
-3. Instrução explícita para não responder sem evidências suficientes.
+**Decisão:** buscar inicialmente `top_k × 5` candidatos e dobrar a quantidade quando a deduplicação produzir menos resultados que `top_k`, respeitando o teto operacional de 200 candidatos e o tamanho da coleção.
 
-**Pendente:** implementar e testar o mecanismo de abstenção.
+**Justificativa:** consultas com comentários muito repetidos podem produzir poucos textos distintos mesmo quando há outras avaliações relevantes no índice.
 
-### 9.3. Avaliação
+**Alternativa descartada:** fixar a busca em `top_k × 5` candidatos, independentemente da diversidade recuperada.
 
-**Abordagem prevista:** conjunto de aproximadamente 12 perguntas, incluindo consultas relevantes e fora do escopo.
+**Evidência:** para `não recebi o produto`, `top_k=10` retornou 10 avaliações distintas entre 200 candidatos; `top_k=250` retornou 57 avaliações distintas, também entre 200 candidatos, indicando recuperação incompleta. Comandos utilizados:
 
-Serão avaliados:
+```bash
+python -m src.retrieve "não recebi o produto" --top-k 10
+python -m src.retrieve "não recebi o produto" --top-k 250
+```
 
-- Precision@k.
-- Cobertura temática qualitativa.
-- Relevância das evidências.
-- Fidelidade das respostas.
-- Acerto na recusa de perguntas sem evidência.
-- Comparação entre top-k de 10, 20 e 30.
+O retorno distingue:
 
-Os resultados orientarão a escolha dos parâmetros finais do RAG.
+- `candidates_examined`: quantidade de candidatos examinados na última busca.
+- `candidate_limit_reached`: indica que a busca atingiu o limite efetivo de candidatos (o menor entre o teto de 200 e o tamanho da coleção), mesmo quando `top_k` foi atendido.
+- `retrieval_incomplete`: indica que foram retornados menos documentos distintos que o `top_k` solicitado.
+
+**Regra de interpretação:** `retrieval_incomplete` é o sinal principal de quantidade insuficiente de resultados distintos. Isso não equivale, por si só, à insuficiência semântica das evidências, que ainda será avaliada.
+
+### 9.3. Ocorrências entre candidatos e rastreabilidade
+
+**Decisão:** retornar `candidate_occurrences` para cada chave textual selecionada e preservar `order_ids` na saída.
+
+**Justificativa:** permitir inspecionar redundância no conjunto recuperado e identificar os pedidos vinculados à avaliação.
+
+**Alternativa descartada:** descartar duplicatas sem registrar sua ocorrência entre os candidatos examinados.
+
+**Evidência:** na consulta `não recebi o produto`, a chave do primeiro resultado apareceu 107 vezes entre os 200 candidatos examinados. Como o teto de 200 foi atingido, **107 é um valor mínimo**: podem existir mais cópias fora do conjunto examinado.
+
+**Limitação:** `candidate_occurrences` **não representa frequência na base inteira**. A contagem depende dos candidatos recuperados e pode subestimar as ocorrências existentes fora desse conjunto. Não deve fundamentar afirmações como "a reclamação mais frequente da base". Além disso, o resultado exibe apenas um `review_id` por texto, embora o mesmo texto possa vir de várias avaliações; os demais identificadores não são retornados.
+
+### 9.4. Validação do recuperador
+
+**Decisão:** validar as regras de recuperação por testes unitários e executar consultas reais contra o índice persistente.
+
+**Justificativa:** verificar a deduplicação, a ordenação, os limites, as flags de retorno e o tratamento de entradas inválidas antes de integrar a LLM.
+
+**Alternativa descartada:** confiar apenas na inspeção visual das consultas de exemplo.
+
+**Evidência:** `python -m pytest tests/test_retrieve.py -q` concluiu com **21 testes aprovados** e `python -m pytest -q` concluiu com **41 testes aprovados**. As consultas reais com `top_k=10` e `top_k=250` confirmaram o comportamento esperado das flags.
+
+Esses resultados demonstram funcionamento técnico, mas **não comprovam ainda precisão, cobertura temática ou qualidade das respostas**.
 
 ---
 
-## 10. Estado atual do projeto
+## 10. Próximas decisões — Avaliação e geração
+
+### 10.1. Avaliação da recuperação (notebook 02)
+
+**Abordagem prevista:** construir `notebooks/02_retrieval_evaluation.ipynb` com 12 perguntas previamente definidas, incluindo nove consultas dentro do escopo e três fora do escopo.
+
+Serão analisados:
+
+- Relevância manual dos documentos e Precision@k.
+- Cobertura temática qualitativa, incluindo temas relevantes ausentes.
+- Comparação de `top_k` igual a 10, 20 e 30, mantendo fixos o modelo, o índice, as perguntas e os critérios de julgamento.
+- Qualidade da resposta gerada em cada `top_k`, pois a Precision@k tende a cair com valores maiores mesmo quando o contexto melhora.
+- Variante de seleção com mínimo de 30 caracteres, sem alterar o índice.
+- Quantidade de candidatos examinados, redundância e recuperação incompleta.
+- Tempo de recuperação (registrado, sem peso na decisão) e tamanho do contexto em tokens.
+
+**Critério de relevância (a confirmar antes do julgamento):** uma avaliação é relevante quando seu texto menciona explicitamente o tema da pergunta. A relevância é julgada pelo conteúdo textual, nunca pela nota. Perguntas fora do escopo são avaliadas por acerto binário de recusa.
+
+**Perguntas de teste:** as 12 perguntas devem ser registradas neste documento antes da avaliação, distribuídas entre reclamações, entrega, elogios, qualidade de produtos, insatisfação e fora do escopo (por exemplo, "Qual o melhor smartphone de 2025?").
+
+**Cuidados metodológicos:** a comparação com filtro de comprimento precisa recuperar candidatos suficientes antes de selecionar os documentos. Perguntas fora do escopo exigem avaliação específica de abstenção após a implementação da geração.
+
+### 10.2. Respostas fundamentadas e abstenção
+
+**Abordagem prevista:** gerar respostas com identificação das avaliações usadas como evidência, restringindo conclusões ao contexto recuperado.
+
+**Pendente:** definir o provedor e o modelo de linguagem, implementar a integração com a LLM, a construção do contexto, a calibração da suficiência das evidências e a recusa fundamentada quando a pergunta não puder ser respondida. Similaridade elevada e quantidade de resultados, isoladamente, não garantem evidência suficiente. O limiar mínimo de similaridade será calibrado com consultas reais, incluindo perguntas fora do escopo.
+
+Para perguntas de padrões ou frequência, a versão inicial deverá empregar linguagem cautelosa, como "nas avaliações recuperadas", sem inferir frequências globais a partir do top-k ou de `candidate_occurrences`.
+
+---
+
+## 11. Reprodutibilidade
+
+Ordem de execução:
+
+1. `python -m src.download_data`
+2. `python -m src.prepare_data`
+3. `python -m src.build_index_data --reset`
+4. `python -m src.retrieve "<pergunta>" --top-k 10`
+5. `python -m pytest -q`
+
+**Pendente:** fixar no `requirements.txt` as versões de `chromadb` e `sentence-transformers`, pois a configuração da métrica e as exceções do Chroma dependem da versão. Confirmar que `data/` e arquivos de credenciais estão no `.gitignore` e documentar no README o download do dataset (sem versionar os CSVs).
+
+---
+
+## 12. Estado atual do projeto
 
 **Concluído:**
 
-- Configuração do ambiente Python e Git.
-- Criação do repositório GitHub.
-- Download automatizado do dataset.
-- Análise exploratória das avaliações.
-- Implementação do pipeline de preparação.
-- Geração da base com 42.138 documentos.
-- Validação de integridade e 20 testes unitários aprovados.
-- Geração local dos embeddings e indexação de 42.138 avaliações no ChromaDB.
-- Validação da métrica cosseno, contagem da coleção e consulta exploratória.
+- Configuração do ambiente Python e Git e criação do repositório GitHub.
+- Download automatizado do dataset e análise exploratória.
+- Preparação, consolidação e validação da base com 42.138 documentos.
+- Geração local de embeddings e indexação persistente no ChromaDB, com distância cosseno.
+- Implementação do recuperador semântico com deduplicação, expansão adaptativa, rastreabilidade e sinalização de limites.
+- 41 testes aprovados na suíte completa (21 deles de recuperação).
+- Validação funcional com consultas reais ao índice.
 
-**Próxima etapa:** implementar `src/retrieve.py`, com processamento explícito das perguntas, recuperação de candidatos, controle de redundância e apresentação das evidências. Depois, avaliar a qualidade da recuperação antes de integrar a LLM.
+**Pendente:**
+
+- Definição das 12 perguntas e do critério de relevância.
+- Calibração do limiar de similaridade com consultas reais (entrega, qualidade, elogios e fora do escopo).
+- Etapa de transformação da pergunta além da normalização de espaços.
+- Verificação do limite de 128 tokens do modelo.
+- Escolha da LLM, geração das respostas e mecanismo de abstenção.
+- Interface Streamlit, README e vídeo de até 7 minutos.
+
+**Próxima etapa:** criar o notebook `02_retrieval_evaluation.ipynb`, definir os critérios de relevância e executar a avaliação comparativa antes da integração com a LLM.
