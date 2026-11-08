@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Ambiente virtual
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Credenciais
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Model artifacts
+*.pkl
+*.joblib
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+
+# Dados e índices locais
+data/raw/
+!data/raw/.gitkeep
+data/processed/
+chroma_db/

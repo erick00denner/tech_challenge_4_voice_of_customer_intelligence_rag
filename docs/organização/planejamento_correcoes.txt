@@ -1,0 +1,4 @@
+Correções sugeridas
+1 - Critério de relevância ausente. O documento diz “relevância manual”, mas não define o critério. Acrescente na seção 7, por exemplo: “a avaliação menciona explicitamente o tema da pergunta”.
+2 - Qualidade da resposta por k. A seção 7 mede a precisão da recuperação, mas não a qualidade da resposta gerada em cada k. Inclua esse item, porque Precision@k tende a cair com k maior.
+3 - Recuperar 30 e enviar um subconjunto à LLM. Combinamos testar essa opção, mas ela não consta na seção 5. Inclua como variante a testar. 
