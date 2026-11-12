@@ -1,12 +1,23 @@
-# Runtime dependencies (Python 3.12)
-chromadb
-sentence-transformers
-pandas
-kagglehub
-tqdm
-google-genai
-python-dotenv
-streamlit
+# Python 3.12 — direct dependencies pinned to the tested environment.
+# Install: python -m pip install -r requirements.txt
+
+# Application and data pipeline
+chromadb==1.5.9
+sentence-transformers==6.2.0
+pandas==3.0.5
+kagglehub==1.0.3
+tqdm==4.70.1
+google-genai==3.1.0
+python-dotenv==1.2.4
+streamlit==1.67.0
 
 # Automated tests
-pytest
+pytest==9.2.0
+
+# Notebook exploration and evaluation
+jupyter==1.1.1
+matplotlib==3.11.1
+scikit-learn==1.9.0
+
+# Full environment snapshot: requirements-lock.txt
+# Note: the full snapshot includes platform-specific CUDA/NVIDIA packages.
