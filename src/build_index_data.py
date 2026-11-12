@@ -2,20 +2,16 @@
 
 import argparse
 import time
-from pathlib import Path
 
 import chromadb
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
+from src.config import CHROMA_PATH, COLLECTION_NAME, MODEL_NAME, ROOT_DIR
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+
 DATA_PATH = ROOT_DIR / "data/processed/olist_reviews_clean.csv"
-CHROMA_PATH = ROOT_DIR / "data/chroma"
-
-COLLECTION_NAME = "olist_reviews"
-MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 BATCH_SIZE = 128
 TEST_QUERY = "produto não chegou"
 

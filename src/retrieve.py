@@ -3,19 +3,11 @@
 
 import argparse
 from collections import Counter
-from pathlib import Path
 
-import chromadb
-from sentence_transformers import SentenceTransformer
+from src.config import CHROMA_PATH, COLLECTION_NAME, MODEL_NAME
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-CHROMA_PATH = ROOT_DIR / "data/chroma"
-
-COLLECTION_NAME = "olist_reviews"
-MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-
-DEFAULT_TOP_K = 10
+DEFAULT_RETRIEVAL_TOP_K = 10
 CANDIDATE_MULTIPLIER = 5
 MAX_CANDIDATES = 200
 
@@ -69,7 +61,7 @@ def retrieve_reviews(
     query: str,
     collection,
     model,
-    top_k: int = DEFAULT_TOP_K,
+    top_k: int = DEFAULT_RETRIEVAL_TOP_K,
 ) -> dict:
     """Expand vector search until enough distinct reviews are found."""
     processed_query = normalize_query(query)
@@ -130,10 +122,13 @@ def main() -> None:
     parser.add_argument(
         "--top-k",
         type=int,
-        default=DEFAULT_TOP_K,
+        default=DEFAULT_RETRIEVAL_TOP_K,
         help="Maximum number of distinct reviews to return.",
     )
     args = parser.parse_args()
+
+    import chromadb
+    from sentence_transformers import SentenceTransformer
 
     client = chromadb.PersistentClient(path=str(CHROMA_PATH))
     collection = client.get_collection(COLLECTION_NAME)

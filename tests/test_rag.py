@@ -219,7 +219,7 @@ def test_call_llm_retries_transient_api_errors(monkeypatch):
     monkeypatch.setattr(rag.time, "sleep", sleep)
     assert rag.call_llm(client, "gemini-test", "question") is response
     assert generate_content.call_count == 2
-    sleep.assert_called_once_with(1)
+    sleep.assert_called_once_with(5)
 
 
 def test_call_llm_does_not_retry_nontransient_error(monkeypatch):
@@ -246,7 +246,7 @@ def test_call_llm_gives_up_after_max_retries(monkeypatch):
     with pytest.raises(errors.APIError):
         rag.call_llm(client, "gemini-test", "question")
     assert generate_content.call_count == rag.MAX_API_RETRIES
-    assert [c.args[0] for c in sleep.call_args_list] == [1, 2]
+    assert [c.args[0] for c in sleep.call_args_list] == [5]
 
 
 def test_generate_answer_api_error_after_invalid_output_stops(monkeypatch, reviews):
@@ -290,3 +290,59 @@ def test_main_rejects_non_positive_arguments(monkeypatch, flag):
 def test_system_instruction_documents_every_reason(reason):
     """Include every supported insufficiency reason in the prompt."""
     assert reason in rag.SYSTEM_INSTRUCTION
+
+class FakeReadTimeout(Exception):
+    """Stand-in for the HTTP backend's timeout exception."""
+
+
+def test_call_llm_retries_timeout_then_succeeds(monkeypatch):
+    """Retry a request timeout with the same backoff as transient API errors."""
+    response = SimpleNamespace(text='{"answer":"ok"}')
+    generate_content = Mock(side_effect=[FakeReadTimeout("slow"), response])
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    sleep = Mock()
+    monkeypatch.setattr(rag.time, "sleep", sleep)
+    assert rag.call_llm(client, "gemini-test", "question") is response
+    sleep.assert_called_once_with(5)
+
+
+def test_call_llm_timeout_exhausted_raises_unavailable(monkeypatch):
+    """Raise LLMUnavailableError once every attempt has timed out."""
+    generate_content = Mock(side_effect=FakeReadTimeout("slow"))
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    sleep = Mock()
+    monkeypatch.setattr(rag.time, "sleep", sleep)
+    with pytest.raises(rag.LLMUnavailableError):
+        rag.call_llm(client, "gemini-test", "question")
+    assert generate_content.call_count == rag.MAX_API_RETRIES
+    assert [c.args[0] for c in sleep.call_args_list] == [5]
+
+
+def test_call_llm_does_not_swallow_unrelated_exceptions(monkeypatch):
+    """Programming errors must surface instead of being retried."""
+    generate_content = Mock(side_effect=KeyError("bug"))
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    monkeypatch.setattr(rag.time, "sleep", Mock())
+    with pytest.raises(KeyError):
+        rag.call_llm(client, "gemini-test", "question")
+    assert generate_content.call_count == 1
+
+
+def test_generate_answer_unavailable_llm_is_technical_error(monkeypatch, reviews):
+    """Report a persistent Gemini timeout as a technical error, not abstention."""
+    mock_retrieval(monkeypatch, reviews)
+    monkeypatch.setattr(
+        rag, "call_llm", Mock(side_effect=rag.LLMUnavailableError("ReadTimeout: slow"))
+    )
+    result = run_generation()
+    assert result["status"] == "erro"
+    assert result["insufficient_evidence"] is None
+    assert "unavailable" in result["error"]
+
+
+def test_create_llm_client_sets_request_timeout(monkeypatch):
+    """Build the Gemini client with the configured request timeout."""
+    captured = {}
+    monkeypatch.setattr(rag.genai, "Client", lambda **kwargs: captured.update(kwargs))
+    rag.create_llm_client("key")
+    assert captured["http_options"].timeout == rag.LLM_TIMEOUT_MS

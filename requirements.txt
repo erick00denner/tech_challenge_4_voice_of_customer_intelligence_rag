@@ -1,2 +1,12 @@
+# Runtime dependencies (Python 3.12)
+chromadb
+sentence-transformers
+pandas
+kagglehub
+tqdm
 google-genai
 python-dotenv
+streamlit
+
+# Automated tests
+pytest

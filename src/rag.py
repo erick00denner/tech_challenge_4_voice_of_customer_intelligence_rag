@@ -5,25 +5,21 @@ import json
 import os
 import time
 
-import chromadb
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
-from sentence_transformers import SentenceTransformer
 
-from src.retrieve import (
-    CHROMA_PATH,
-    COLLECTION_NAME,
-    MODEL_NAME,
-    retrieve_reviews,
-)
+from src.config import CHROMA_PATH, COLLECTION_NAME, MODEL_NAME
+from src.retrieve import retrieve_reviews
 
 
 DEFAULT_TOP_K = 20
 MIN_CITATIONS = 2
 MAX_GENERATION_ATTEMPTS = 2
-MAX_API_RETRIES = 3
+MAX_API_RETRIES = 2
 RETRYABLE_API_CODES = {429, 500, 503}
+LLM_TIMEOUT_MS = 90_000
+API_RETRY_DELAYS = (5,)
 
 REASON_NONE = "nenhuma"
 INSUFFICIENCY_REASONS = (
@@ -101,6 +97,27 @@ RESPONSE_SCHEMA = {
         "insufficiency_reason",
     ],
 }
+
+
+class LLMUnavailableError(Exception):
+    """Raised when Gemini stays unreachable (timeout or connection failure)."""
+
+
+def create_llm_client(api_key: str):
+    """Build a Gemini client whose calls fail after LLM_TIMEOUT_MS."""
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=LLM_TIMEOUT_MS),
+    )
+
+
+def _is_transient_network_error(exc: Exception) -> bool:
+    """Detect timeouts and connection failures across HTTP backends."""
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+
+    name = type(exc).__name__.lower()
+    return "timeout" in name or "connecterror" in name
 
 
 def _escape_tags(text: str) -> str:
@@ -211,10 +228,20 @@ def call_llm(llm_client, llm_model: str, prompt: str):
             is_last = attempt == MAX_API_RETRIES - 1
 
             if exc.code in RETRYABLE_API_CODES and not is_last:
-                time.sleep(2**attempt)
+                time.sleep(API_RETRY_DELAYS[attempt])
                 continue
 
             raise
+        except Exception as exc:
+            if not _is_transient_network_error(exc):
+                raise
+
+            if attempt == MAX_API_RETRIES - 1:
+                raise LLMUnavailableError(
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+
+            time.sleep(API_RETRY_DELAYS[attempt])
 
 
 def _build_result(
@@ -303,6 +330,9 @@ def generate_answer(
         except errors.APIError as exc:
             last_error = f"API error {exc.code}: {exc.message}"
             break
+        except LLMUnavailableError as exc:
+            last_error = f"Gemini unavailable: {exc}"
+            break
 
         try:
             if not response.text:
@@ -362,6 +392,9 @@ def main() -> None:
     if args.top_k < 1 or args.min_citations < 1:
         parser.error("--top-k e --min-citations devem ser positivos.")
 
+    import chromadb
+    from sentence_transformers import SentenceTransformer
+
     load_dotenv()
 
     api_key = os.getenv("GEMINI_API_KEY")
@@ -376,7 +409,7 @@ def main() -> None:
     chroma_client = chromadb.PersistentClient(path=str(CHROMA_PATH))
     collection = chroma_client.get_collection(COLLECTION_NAME)
     embedding_model = SentenceTransformer(MODEL_NAME)
-    llm_client = genai.Client(api_key=api_key)
+    llm_client = create_llm_client(api_key)
 
     try:
         result = generate_answer(
