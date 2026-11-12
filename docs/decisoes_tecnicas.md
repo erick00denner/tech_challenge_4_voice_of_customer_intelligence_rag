@@ -274,13 +274,13 @@ Cada avaliação será representada por um único documento.
 
 ### 6.2. Testes unitários
 
-**Decisão:** utilizar `pytest` para testar funções de preparação textual e de recuperação.
+**Decisão:** utilizar `pytest` para testar as funções de preparação textual, recuperação e geração RAG.
 
 **Justificativa:** garantir que alterações futuras não comprometam regras já validadas.
 
 **Alternativa descartada:** depender apenas da execução manual do pipeline.
 
-**Evidência:** a execução de `python -m pytest -q` concluiu com **41 testes aprovados** (20 de preparação e 21 de recuperação). Os testes cobrem construção de documentos, chaves de deduplicação, detecção de letras, consolidação de `review_id`, deduplicação na recuperação, expansão adaptativa de candidatos, flags de retorno e tratamento de entradas inválidas.
+**Evidência:** a suíte de preparação e recuperação registrou **41 testes aprovados** (20 de preparação e 21 de recuperação). Posteriormente, foram implementados testes para a geração RAG em `tests/test_rag.py`, abrangendo validação de estrutura, citações, abstenções e tratamento de erros. Uma execução anterior da suíte completa registrou **77 testes aprovados**; recomenda-se executar novamente `python -m pytest -q` após as últimas alterações de versionamento do prompt.
 
 Comando de execução:
 
@@ -460,84 +460,241 @@ O retorno distingue:
 
 **Evidência:** `python -m pytest tests/test_retrieve.py -q` concluiu com **21 testes aprovados** e `python -m pytest -q` concluiu com **41 testes aprovados**. As consultas reais com `top_k=10` e `top_k=250` confirmaram o comportamento esperado das flags.
 
-Esses resultados demonstram funcionamento técnico. A precisão da recuperação foi posteriormente medida no Notebook 02 (seção 10.1), mas a qualidade das respostas geradas permanece não avaliada.
+Esses resultados demonstram funcionamento técnico. A precisão da recuperação foi posteriormente medida no Notebook 02 (seção 10.1), e a qualidade das respostas geradas foi posteriormente avaliada no Notebook 03 (seção 10.3).
 
 ---
 
-## 10. Avaliação da recuperação — concluída; geração — próxima etapa
+## 10. Avaliação da recuperação semântica e decisões para geração
 
-### 10.1. Avaliação da recuperação (notebook 02)
+### 10.1. Avaliação da recuperação — Notebook 02
 
-**Decisão:** avaliar a recuperação com 19 perguntas previamente definidas: nove dentro do domínio de avaliações de clientes (Q01–Q09), sete fora do escopo (Q10–Q16) e três vagas (Q17–Q19). A Precision@k foi calculada somente nas nove perguntas de domínio, com 30 resultados classificados por pergunta (**270 pares pergunta–avaliação**). As perguntas fora do escopo e vagas foram analisadas qualitativamente, sem Precision@k e sem teste de recusa da LLM, ainda não implementada.
+**Decisão:** avaliar quantitativamente a relevância dos documentos recuperados e investigar qualitativamente o comportamento do recuperador diante de perguntas fora do escopo e perguntas vagas, antes da implementação da geração de respostas com LLM.
 
-**Critério de relevância:** escala ordinal definida antes da avaliação: `2` = a avaliação sustenta diretamente o sentido da pergunta; `1` = aborda o tema, mas não sustenta o sentido solicitado; `0` = irrelevante. O julgamento considera o texto, não a nota do cliente, a similaridade ou a posição no ranking. A precisão **estrita** considera somente `2`; a **tolerante**, `1` e `2`.
+**Justificativa:** o funcionamento técnico da busca vetorial não garante que os documentos recuperados sustentem o sentido específico da pergunta. A avaliação permite identificar limitações e fundamentar decisões sobre a seleção do contexto enviado ao futuro modelo de linguagem.
 
-**Procedimento:** recuperação única de até 40 textos distintos por pergunta, seguida de exportação separada de candidatos e rótulos (`evaluation/retrieval_candidates.csv` e `evaluation/retrieval_labels.csv`). A rotulagem foi feita por anotador humano; pré-rótulos de LLM foram usados como segundo conjunto de anotações para análise de concordância, não como verdade de referência. A inspeção para rotulagem oculta similaridade e posição e apresenta os documentos em ordem embaralhada com semente fixa. As métricas usam a posição original do recuperador. O notebook valida rótulos, identifica chaves órfãs e calcula médias apenas para perguntas completamente rotuladas em cada k.
+**Alternativa descartada:** considerar a inspeção visual de consultas isoladas e os valores de similaridade como evidência suficiente da qualidade da recuperação.
 
-**Concordância entre anotadores, antes da revisão de consistência:** a comparação entre os rótulos humanos e os pré-rótulos gerados por LLM apresentou concordância observada de 80,4%, κ de Cohen = 0,62 e κ ponderado = 0,69. Das 53 divergências, 38 ocorreram entre os níveis 1 e 2, principalmente em Q04 (defeito explícito × qualidade ruim) e Q07 (pedido de reembolso × reclamação sobre o processo).
+**Evidência:** experimento executado no Notebook 02, com 19 perguntas e classificação manual de 270 pares pergunta–avaliação.
 
-Os indicadores foram calculados antes da revisão de consistência dos rótulos humanos e não representam validação independente da qualidade dos rótulos finais. Para permitir a reprodução dessa análise, devem ser preservados os dois conjuntos de rótulos utilizados, a identificação do modelo responsável pelos pré-rótulos e o método de ponderação aplicado ao κ ponderado. Essas informações ainda precisam ser confirmadas nos artefatos da avaliação.
+#### 10.1.1. Escopo e metodologia
 
-#### 10.1.1. Resultados da recuperação original
+Foram executadas 19 perguntas, distribuídas em três grupos:
 
-Médias descritivas sobre as mesmas **nove perguntas** em cada k:
+- **9 perguntas de domínio (Q01–Q09):** consultas relacionadas às experiências dos consumidores, como entrega, defeitos, atendimento, reembolso e qualidade dos produtos.
+- **7 perguntas fora do escopo (Q10–Q16):** solicitações que não podem ser respondidas com as avaliações históricas disponíveis.
+- **3 perguntas vagas (Q17–Q19):** consultas com contexto insuficiente ou intenção pouco específica.
 
-| k | Precision estrita | Precision tolerante | Evidências diretas médias por pergunta |
+A avaliação quantitativa foi realizada exclusivamente nas nove perguntas de domínio, considerando os 30 primeiros resultados de cada pergunta, totalizando **270 pares pergunta–avaliação**.
+
+As perguntas fora do escopo e as perguntas vagas foram analisadas qualitativamente, sem cálculo de Precision@k.
+
+#### 10.1.2. Critérios de relevância e rotulagem
+
+**Decisão:** utilizar classificação manual de relevância, considerando o conteúdo textual da avaliação e sua capacidade de sustentar o sentido da pergunta.
+
+Os 270 pares foram classificados exclusivamente por **um anotador humano**, segundo a escala:
+
+| Rótulo | Classificação | Critério |
+|---|---|---|
+| 2 | Evidência direta | A avaliação sustenta o sentido específico da pergunta. |
+| 1 | Relevância temática | A avaliação aborda o tema, mas não sustenta diretamente a afirmação investigada. |
+| 0 | Irrelevante | A avaliação não apresenta relação suficiente com a pergunta. |
+
+A classificação não utiliza a nota (`review_score`) como substituta da análise textual.
+
+Um experimento preliminar de pré-rotulagem com LLM foi descartado. **Nenhum rótulo gerado por LLM foi utilizado no conjunto final de avaliação ou no cálculo das métricas apresentadas nesta seção.**
+
+Como a classificação final foi realizada por um único anotador humano, não foi medida concordância interavaliadores para esse conjunto. Essa característica constitui uma limitação metodológica do experimento.
+
+#### 10.1.3. Métricas utilizadas
+
+Foram calculadas duas variantes de Precision@k:
+
+- **Precision estrita:** considera relevantes apenas avaliações com rótulo 2.
+- **Precision tolerante:** considera relevantes avaliações com rótulos 1 ou 2.
+
+As métricas foram calculadas para `k=10`, `k=20` e `k=30`, utilizando exclusivamente perguntas com rótulos completos nas posições avaliadas.
+
+A precisão estrita mede a proporção de avaliações que sustentam diretamente a pergunta. A precisão tolerante mede a proporção de avaliações que apresentam, no mínimo, relação temática.
+
+#### 10.1.4. Resultados da recuperação original
+
+**Evidência — média das nove perguntas de domínio:**
+
+| k | Precision estrita | Precision tolerante | Evidências diretas por pergunta |
 |---|---:|---:|---:|
 | 10 | 60,0% | 93,3% | 6,0 |
 | 20 | 60,0% | 91,7% | 12,0 |
 | 30 | 58,9% | 90,0% | 17,7 |
 
-**Interpretação:** a precisão estrita permaneceu semelhante entre k=10 e k=30, enquanto a tolerante caiu aproximadamente 3,3 pontos percentuais. Aumentar k eleva a quantidade absoluta de evidências diretas, mas também aumenta o número de textos que não sustentam diretamente a pergunta e o custo de contexto para a LLM. Os resultados não demonstram que respostas geradas com k maior serão melhores.
+A precisão estrita permaneceu próxima de 60% nos três valores de k. A precisão tolerante diminuiu de 93,3% para 90,0% entre k=10 e k=30.
 
-**Principais dificuldades de sentido, em k=30:**
+Aumentar k de 10 para 30 elevou a média de evidências diretas de 6,0 para 17,7 por pergunta, mantendo precisão estrita semelhante. Entretanto, também aumentou a quantidade absoluta de avaliações relacionadas apenas ao tema ou irrelevantes, exigindo maior capacidade de seleção de evidências na etapa de geração.
 
-| Pergunta | Precision estrita | Precision tolerante | Limitação observada |
-|---|---:|---:|---|
-| Q04 — produtos com defeito | 26,7% | 96,7% | Confusão entre defeito explícito e baixa qualidade |
-| Q05 — diferente do anunciado | 16,7% | 80,0% | Confusão entre conformidade e divergência do anúncio |
-| Q06 — dificuldades no atendimento | 10,0% | 60,0% | Textos curtos/genéricos e menções inespecíficas a serviço |
+**Principal limitação identificada:** o recuperador frequentemente identifica corretamente o tema, mas não distingue com a mesma precisão o sentido específico da pergunta.
 
-Q06 foi a pergunta mais fraca: sua precisão tolerante caiu de 80% em k=10 para 60% em k=30. O recuperador frequentemente identifica o **assunto**, mas não necessariamente a **afirmação específica** procurada.
+Essa diferença foi especialmente evidente em:
 
-#### 10.1.2. Experimento: pós-filtro de 30 caracteres
+| Pergunta | Precision@30 estrita | Precision@30 tolerante |
+|---|---:|---:|
+| Q04 — Produtos com defeito | 26,7% | 96,7% |
+| Q05 — Produto diferente do anunciado | 16,7% | 80,0% |
+| Q06 — Dificuldades no atendimento | 10,0% | 60,0% |
 
-**Decisão:** não adotar o filtro de comprimento. O experimento selecionou, a partir dos 40 resultados já recuperados, os primeiros k documentos com `n_chars >= 30`, sem alterar embeddings ou índice. As médias abaixo são **pareadas**: cada linha compara somente perguntas com k rótulos completos em ambas as variantes.
+Em Q04, por exemplo, avaliações sobre qualidade ruim nem sempre descrevem defeitos explícitos. Em Q05, a proximidade temática não garante que o produto recebido seja diferente do anunciado.
 
-| k | Perguntas comparáveis | Estrita: base → filtro | Tolerante: base → filtro |
+Q06 apresentou o desempenho mais fraco: a precisão tolerante caiu de 80,0% em k=10 para 60,0% em k=30, com a inclusão de textos curtos e genéricos no ranking.
+
+Esses resultados demonstram que a similaridade semântica, isoladamente, não assegura evidência direta para a geração de respostas.
+
+#### 10.1.5. Experimento com filtro mínimo de 30 caracteres
+
+**Decisão experimental:** comparar a recuperação original com uma variante que seleciona apenas avaliações com pelo menos 30 caracteres, a partir dos 40 resultados recuperados.
+
+**Justificativa:** investigar se a remoção de avaliações muito curtas melhora a relevância do contexto, sem alterar o índice vetorial.
+
+A comparação foi realizada de forma pareada, utilizando apenas perguntas com rotulagem completa nas duas variantes para cada valor de k.
+
+| k | Perguntas comparadas | Precision estrita (original → filtro) | Precision tolerante (original → filtro) |
 |---|---:|---|---|
 | 10 | 9 | 60,0% → 58,9% | 93,3% → 91,1% |
 | 20 | 7 | 61,4% → 60,7% | 94,3% → 93,6% |
 
-Em k=20, Q02 e Q06 foram excluídas **de ambas as variantes** porque faltaram três rótulos de documentos além do rank 30; não se ampliou a rotulagem por decisão de escopo. Essas perguntas possuíam, respectivamente, 13 e 15 textos com menos de 30 caracteres entre os 40 candidatos. A comparação em k=10 inclui ambas.
+Para k=20, Q02 e Q06 foram excluídas da comparação pareada porque a variante filtrada exigiria três rótulos de avaliações posicionadas além do rank 30, que não foram atribuídos.
 
-**Evidência:** o filtro não melhorou a média em nenhuma comparação pareada e pode remover evidências curtas úteis, como `Péssimo atendimento`. A conclusão é restrita às perguntas e variantes avaliadas.
+Essas duas perguntas estavam entre as que apresentaram maior quantidade de textos curtos nos 40 candidatos. Entretanto, ambas participaram da comparação em k=10.
 
-#### 10.1.3. Perguntas fora do escopo e vagas
+**Resultado:** o filtro não apresentou melhoria nas configurações avaliadas e pode excluir avaliações curtas que constituem evidências diretas.
 
-**Observação:** as similaridades máximas de perguntas fora do escopo (aproximadamente 0,52–0,74) se sobrepõem às de domínio (aproximadamente 0,67–0,86). Q16, sobre o prazo **oficial e atual** de reembolso, alcançou 0,738, acima de Q06 (0,666) e Q07 (0,685). As avaliações recuperadas podem mencionar palavras próximas — `prazo`, `garantia`, `anunciado` — sem fundamentar uma política oficial ou informação atual.
+**Decisão final:** manter a recuperação original, sem aplicar o filtro mínimo de 30 caracteres.
 
-Q17 e Q19 retornaram somente quatro e dois textos distintos, respectivamente, após a deduplicação, mesmo com 200 candidatos examinados. Isso evidencia limitação para consultas vagas e redundantes. `candidate_occurrences` e sua soma diagnóstica descrevem ocorrências entre candidatos examinados para as chaves selecionadas; **não** representam frequências em toda a base nem necessariamente todas as duplicatas examinadas.
+#### 10.1.6. Perguntas fora do escopo e vagas
 
-**Conclusão:** um limiar de similaridade isolado não determina se a pergunta é respondível. Perguntas vagas exigem esclarecimento; perguntas sobre políticas oficiais ou fatos atuais não podem ser respondidas como se avaliações históricas fossem documentos oficiais.
+As sete perguntas fora do escopo e as três perguntas vagas foram utilizadas para investigar limitações qualitativas da recuperação.
 
-#### 10.1.4. Limitações da avaliação
+A similaridade máxima observada nas perguntas fora do escopo variou aproximadamente de 0,52 a 0,74, sobrepondo-se aos valores das perguntas de domínio, aproximadamente de 0,67 a 0,86.
 
-- Foi medida **precisão**, não recall; a quantidade de evidências relevantes fora do top-k é desconhecida.
-- Nove perguntas de domínio, um anotador humano e um segundo conjunto de pré-rótulos por LLM; médias descritivas, sem teste de significância ou garantia de generalização.
-- Q04 e Q07 dependem de critérios semânticos estritos definidos previamente (defeito explícito; reclamação efetiva sobre devolução/reembolso).
-- As avaliações correspondem ao período histórico de 2016–2018; não sustentam, por si, afirmações sobre políticas oficiais ou situações posteriores.
-- A recuperação não mede a frequência global de reclamações, nem a qualidade das respostas de uma LLM.
+A pergunta Q16 apresentou similaridade máxima de 0,738, superior à observada em Q06 (0,666) e Q07 (0,685), embora estivesse fora do escopo das informações disponíveis.
 
-### 10.2. Respostas fundamentadas, suficiência e abstenção — pendente
+As avaliações recuperadas podiam conter termos relacionados à pergunta, como "prazo", "garantia" ou "anunciado", sem fornecer evidências suficientes para respondê-la.
 
-**Decisão inicial para o próximo experimento:** começar com `top_k=20` e, posteriormente, comparar com `top_k=30` na **qualidade das respostas**, não apenas na precisão dos documentos recuperados. Instruir a LLM a selecionar somente avaliações que sustentem diretamente cada afirmação, citar seus `review_id` e reconhecer evidência insuficiente ou contraditória.
+**Conclusão:** um limiar de similaridade isolado não permite distinguir, de forma confiável, perguntas respondíveis de perguntas sem evidência suficiente.
 
-**Política preliminar:** perguntas sobre experiências relatadas podem ser respondidas com citações; perguntas vagas devem solicitar esclarecimento; perguntas que exijam políticas oficiais, informações atuais ou fatos não presentes nas avaliações devem receber resposta de insuficiência/fora do escopo. Um ano posterior a 2018 não implica recusa automática: importa se a pergunta exige evidências daquele ano. A suficiência será avaliada por regras explícitas e julgamento contextual da LLM, **testados empiricamente**, nunca presumidos corretos por similaridade elevada.
+Nas perguntas vagas, Q17 e Q19 retornaram apenas quatro e duas avaliações distintas após a deduplicação, mesmo com o exame de 200 candidatos. Esse comportamento evidencia uma limitação da recuperação diante de consultas vagas e conjuntos altamente redundantes.
 
-**Transformação da pergunta (requisito do enunciado, pendente):** implementar ao menos uma etapa além da normalização de espaços, avaliada em Q04–Q06: (a) filtro por `review_score` quando a pergunta indicar reclamação ou elogio (por exemplo, nota ≤ 2), com cautela, porque nota não equivale a sentimento (seção 7.2); e/ou (b) reescrita da consulta para a linguagem das avaliações. O reranking permanece opcional e só será considerado se a geração evidenciar necessidade.
+#### 10.1.7. Limitações da avaliação
 
-Para sínteses de padrões ou frequência, utilizar linguagem restrita às **avaliações recuperadas**, sem inferir frequências globais a partir do top-k ou de `candidate_occurrences`.
+A interpretação dos resultados considera as seguintes limitações:
+
+- **Precisão, não recall:** não foi medida a quantidade de evidências relevantes existentes fora dos primeiros resultados.
+- **Conjunto limitado de perguntas:** as médias representam nove perguntas de domínio e não garantem desempenho equivalente para todas as consultas possíveis.
+- **Anotador único:** os rótulos finais foram atribuídos por um único avaliador humano, sem medição de concordância interavaliadores.
+- **Critérios semânticos:** perguntas como Q04 e Q07 dependem de distinções específicas, como defeito explícito versus qualidade ruim e pedido de reembolso versus reclamação sobre o processo.
+- **Ausência de testes de significância:** as médias e diferenças observadas são descritivas.
+- **Redundância:** `candidate_occurrences` representa ocorrências entre os candidatos examinados, não a frequência dos textos na base completa.
+- **Avaliação restrita à recuperação:** os resultados desta subseção não demonstram, por si só, a qualidade das respostas produzidas pelo LLM; essa dimensão é avaliada separadamente no Notebook 03.
+
+### 10.2. Geração fundamentada com LLM — implementada
+
+**Decisão:** implementar a geração em `src/rag.py`, utilizando o modelo `gemini-3.8-flash` pela API Google Gen AI e o recuperador semântico existente como única fonte de evidências para as respostas sobre consumidores.
+
+**Justificativa:** a avaliação de recuperação demonstrou que documentos semanticamente relacionados nem sempre sustentam diretamente a pergunta. A geração deve selecionar evidências pertinentes, apresentar citações verificáveis e abster-se quando não houver suporte adequado.
+
+**Estratégia implementada:**
+
+1. Recuperar inicialmente **20 avaliações textualmente distintas** por pergunta (`top_k=20`).
+2. Construir o contexto com os textos das avaliações e seus `review_id`.
+3. Orientar o modelo a distinguir evidências diretas de semelhança apenas temática, sem extrapolar os relatos recuperados para toda a base.
+4. Solicitar uma resposta sintética, normalmente em 2 a 4 frases, **sem inserir identificadores de avaliações no corpo de `answer`**; as fontes são apresentadas separadamente em `cited_review_ids`.
+5. Validar a estrutura da saída e os identificadores citados, impedindo referências a avaliações não recuperadas.
+6. Registrar `status` (`respondida`, `abstencao` ou `erro`), indicação de evidência insuficiente, motivo de abstenção e sinalizador `limited_evidence` quando aplicável. Menos de duas citações não implica abstenção automática.
+7. Tratar falhas transitórias da API com tentativas adicionais para erros 429, 500 e 503, preservando erros técnicos como distintos de abstenções semânticas.
+
+**Decisão sobre suficiência:** não utilizar um limiar isolado de similaridade para determinar se a pergunta pode ser respondida. A suficiência depende da adequação semântica das evidências, das instruções de geração e das validações estruturais.
+
+**Alternativas não adotadas:** adicionar reranking, reescrita de consultas ou filtros rígidos de comprimento antes de verificar o comportamento da geração com a recuperação original. Também não foi adotada a obrigatoriedade de duas citações como condição para responder.
+
+**Evidência:** implementação de `src/rag.py`, testes em `tests/test_rag.py` e avaliação empírica no Notebook 03, descrita a seguir.
+
+### 10.3. Avaliação da geração — Notebook 03
+
+#### 10.3.1. Escopo e metodologia
+
+**Decisão:** avaliar manualmente as respostas e abstenções do RAG com as mesmas **19 perguntas** do experimento de recuperação: nove perguntas de domínio (Q01–Q09), sete fora do escopo (Q10–Q16) e três ambíguas (Q17–Q19).
+
+**Justificativa:** verificar não apenas se o recuperador encontra documentos pertinentes, mas se a resposta final utiliza corretamente as fontes e se o sistema reconhece perguntas que não deve responder.
+
+As nove respostas de domínio foram avaliadas por três critérios, cada um na escala de **0 a 2**: `faithfulness` (fidelidade às evidências), `citation_quality` (qualidade das citações) e `answer_quality` (qualidade da resposta). Para as dez perguntas que resultaram em abstenção, avaliou-se `abstention_correct` em escala binária (0 ou 1). A avaliação foi humana, com justificativas registradas individualmente.
+
+**Artefatos:** `notebooks/03_generation_evaluation.ipynb`, `evaluation/generation_runs.jsonl` e `evaluation/generation_labels.csv`.
+
+#### 10.3.2. Configuração e resultados
+
+**Configuração avaliada:** `gemini-3.8-flash` (camada gratuita), `top_k=20`, `temperature=0`, prompt identificado por `a128a1fe07c1`. O conjunto contém 19 perguntas, com uma execução válida final por pergunta; tentativas anteriores com erros de API foram preservadas no histórico.
+
+| Indicador | Resultado |
+|---|---:|
+| Perguntas com execução válida | 19/19 |
+| Perguntas de domínio respondidas | 9/9 |
+| Perguntas fora do escopo com abstenção | 7/7 |
+| Perguntas vagas com abstenção | 3/3 |
+| Fidelidade média (`faithfulness`) | 2,00/2 (9 respostas) |
+| Qualidade média das citações (`citation_quality`) | 2,00/2 (9 respostas) |
+| Qualidade média das respostas (`answer_quality`) | 2,00/2 (9 respostas) |
+| Abstenções consideradas adequadas | 10/10 |
+| Erros técnicos nas execuções finais válidas | 0 |
+
+**Decisão:** complementar as notas humanas com uma comparação automática entre os `review_id` citados e os rótulos humanos de relevância (0, 1 ou 2) atribuídos no Notebook 02. Todos os 20 documentos recuperados para cada uma das nove perguntas de domínio estavam rotulados.
+
+- **Precisão estrita das citações:** proporção de citações com rótulo 2 entre todas as citações emitidas.
+- **Cobertura das evidências diretas recuperadas:** proporção de documentos de rótulo 2, presentes no top-20, que foram citados na resposta.
+
+| Pergunta | Citações | Precisão estrita | Cobertura das evidências diretas no top-20 |
+|---|---:|---:|---:|
+| Q01 | 16 | 16/16 | 16/16 |
+| Q02 | 19 | 18/19 | 18/19 |
+| Q03 | 18 | 18/18 | 18/18 |
+| Q04 | 2 | 2/2 | **2/5** |
+| Q05 | 2 | 2/2 | 2/2 |
+| Q06 | 3 | 3/3 | 3/3 |
+| Q07 | 7 | 7/7 | **7/12** |
+| Q08 | 16 | 16/16 | 16/18 |
+| Q09 | 15 | 15/15 | 15/15 |
+| **Total** | **98** | **97/98 (99,0%)** | **97/108 (89,8%)** |
+
+Das 98 citações, 97 receberam rótulo 2 e uma recebeu rótulo 1 (Q02); nenhuma recebeu rótulo 0. A cobertura de 89,8% refere-se **somente às evidências diretas identificadas entre os 20 documentos recuperados por pergunta**, e não ao conjunto completo de avaliações Olist. A nota humana `citation_quality` avalia pertinência e sustentação da resposta; a cobertura é uma métrica separada e não integra essa nota.
+
+A latência registrada variou de **25 a 1.854 segundos por pergunta** na camada gratuita da API. Houve tentativas com erros 429 e 503 antes da conclusão das 19 execuções válidas; essas falhas foram registradas como `erro`, nunca como abstenção.
+
+#### 10.3.3. Interpretação e limitações
+
+- **Seleção semântica das citações:** nas Q04–Q06, em que a recuperação apresentou baixa precisão estrita, as citações escolhidas pelo LLM receberam rótulo 2. Em Q05, o modelo citou duas avaliações diretas e não citou relatos que indicavam conformidade com o anúncio. Isso apoia o uso da seleção semântica pelo LLM, sem comprovar que `top_k=20` seja superior a outras configurações.
+- **Cobertura desigual:** em Q04 foram citadas apenas 2 das 5 evidências diretas recuperadas; em Q07, 7 das 12. Portanto, uma resposta fiel às fontes citadas ainda pode omitir relatos pertinentes. Em Q08 a cobertura foi 16/18.
+- **Q02 — fronteira semântica:** uma das 19 citações recebeu rótulo 1, pois mencionar um atraso não equivale necessariamente a reclamar dele. Essa distinção também explica parte das diferenças entre documentos recuperados e citados.
+- **Q07 — formulação ambígua:** a expressão “recusa no recebimento de produtos danificados” admite interpretação diferente da avaliação sobre a empresa não aceitar devolução. Apesar da nota humana máxima, a formulação merece cautela.
+- **Abstenções:** as dez decisões foram consideradas adequadas ao prompt atual, inclusive a recusa de Q16 apesar da similaridade relativamente alta. Em Q14, o motivo `evidencia_insuficiente` foi menos apropriado que `fora_do_escopo`; acerto da decisão não significa acerto da classificação do motivo.
+- **Perguntas amplas:** Q18 (“Problemas com a compra”) recebeu abstenção por vagueza, coerente com as instruções atuais; um assistente exploratório poderia optar por apresentar um panorama inicial.
+- **Consultas curtas:** Q17 e Q19 retornaram respectivamente quatro e duas avaliações distintas, com `retrieval_incomplete=True`, após a deduplicação de textos muito genéricos.
+- **Limitações metodológicas:** uma execução válida por pergunta, nove perguntas de domínio com formatos semelhantes e avaliação manual por uma única pessoa. Notas no teto não demonstram generalização; `temperature=0` não assegura determinismo absoluto. Não houve comparação entre modelos nem medição de recall sobre toda a base.
+- **Operação:** erros 429/503 e latência elevada na API gratuita podem comprometer a experiência de uso, embora as tentativas finais tenham sido concluídas.
+
+**Decisão final:** manter `top_k=20` e o prompt `a128a1fe07c1` como linha de base para a interface inicial. Manter a decisão de suficiência baseada em análise semântica e validações explícitas, sem limiar isolado de similaridade. Registrar Q04 e Q07 como casos prioritários de cobertura insuficiente **dentro do top-20**.
+
+**Experimento futuro condicionado à necessidade:** comparar `top_k=20` e `top_k=30`, preservando modelo, perguntas e critérios, para investigar se a cobertura melhora em Q04 e Q07. Os rótulos do Notebook 02 cobrem até a posição 30, mas a avaliação de novas respostas exigirá inspeção apropriada. Essa comparação ainda não foi realizada.
+
+### 10.4. Auditoria das evidências
+
+**Decisão:** preservar o histórico das execuções e oferecer no Notebook 03 uma seção específica para inspeção das fontes de cada resposta, sem realizar novas chamadas à API ou consultas ao ChromaDB.
+
+**Justificativa:** permitir que terceiros verifiquem a correspondência entre pergunta, resposta, avaliações citadas e julgamento humano, distinguindo a auditoria do experimento original de uma nova execução potencialmente variável.
+
+**Procedimento:** selecionar `AUDIT_QUESTION_ID` (Q01–Q19) na seção de auditoria do Notebook 03. A visualização utiliza os registros persistidos para exibir pergunta, resposta ou abstenção, `cited_review_ids`, textos das avaliações recuperadas e notas/justificativas de `generation_labels.csv`.
+
+**Rastreabilidade:** `generation_runs.jsonl` preserva também tentativas com erros técnicos, que não devem ser confundidas com abstenções válidas. Para auditoria e métricas, deve-se selecionar a execução válida correspondente a cada pergunta e configuração experimental. O arquivo de rótulos humanos deve ser mantido sem sobrescrita.
+
+**Controle de versão do prompt:** a configuração avaliada utiliza o identificador `a128a1fe07c1`. O experimento passou a registrar `prompt_sha256`, calculado a partir das instruções de sistema, template da pergunta e esquema de resposta. Algumas execuções legadas não possuem esse campo; seu reaproveitamento pressupõe a confirmação de que o prompt efetivo não foi alterado. O hash não substitui a preservação do código e dos resultados originais.
+
+**Limite da auditoria:** conferir as evidências citadas permite avaliar a fundamentação das respostas registradas, mas não comprova que o recuperador encontrou todas as avaliações relevantes existentes no dataset.
 
 ---
 
@@ -549,28 +706,35 @@ Para sínteses de padrões ou frequência, utilizar linguagem restrita às **ava
 2. `python -m src.prepare_data`
 3. `python -m src.build_index_data --reset`
 4. `python -m src.retrieve "<pergunta>" --top-k 10`
-5. Executar `notebooks/02_retrieval_evaluation.ipynb` com o índice persistente e os arquivos de avaliação.
-6. `python -m pytest -q`
+5. Executar `notebooks/02_retrieval_evaluation.ipynb` com o índice persistente e os arquivos originais de avaliação.
+6. Configurar a credencial do Gemini no `.env` local, sem versioná-la.
+7. Executar `notebooks/03_generation_evaluation.ipynb`, preferencialmente com `RUN_BATCH = False` para consultar os resultados já registrados sem novas chamadas à API. A execução de um novo lote deve ser deliberada e preservar os resultados anteriores.
+8. Utilizar a seção **Auditoria das evidências** do Notebook 03 para conferir as fontes e os julgamentos humanos.
+9. `python -m pytest -q`
 
-### 11.2. Rastreabilidade da avaliação
+### 11.2. Rastreabilidade das avaliações
 
-A avaliação utiliza dois arquivos principais:
+**Recuperação:**
 
 - `evaluation/retrieval_candidates.csv`: resultados recuperados, incluindo identificadores, posição no ranking, similaridade e metadados.
-- `evaluation/retrieval_labels.csv`: rótulos finais de relevância associados aos pares `question_id` e `review_id`.
+- `evaluation/retrieval_labels.csv`: rótulos humanos de relevância associados aos pares `question_id` e `review_id`.
 
-Os rótulos devem corresponder exatamente aos candidatos gerados pela mesma configuração de modelo de embeddings, índice vetorial, recuperador e conjunto de perguntas.
+**Geração:**
 
-A reprodução das métricas deve preservar os arquivos utilizados na avaliação original. Uma nova execução da recuperação poderá produzir candidatos ou posições diferentes caso haja alterações no índice, nas dependências ou na implementação. Nessa situação, os rótulos anteriores não devem ser reutilizados automaticamente sem validação de correspondência.
+- `evaluation/generation_runs.jsonl`: histórico das execuções, com perguntas, respostas, citações, documentos recuperados, status e eventuais erros técnicos.
+- `evaluation/generation_labels.csv`: avaliação humana das respostas e abstenções, com notas, justificativas e identificação da configuração experimental.
 
-A comparação entre a recuperação original e o filtro de 30 caracteres utiliza apenas perguntas com rotulagem completa nas duas variantes para cada valor de k.
+A reprodução das métricas deve preservar os arquivos originais e selecionar apenas registros compatíveis com a configuração avaliada. Novas execuções da recuperação ou geração podem produzir diferenças de ranking, conteúdo ou resposta; os rótulos antigos não devem ser associados automaticamente a resultados novos.
+
+**Auditoria versus reprodução:** a auditoria verifica as respostas e fontes efetivamente registradas, sem depender da API do Gemini ou do índice vetorial. A reprodução completa exige reconstruir o ambiente e pode produzir resultados diferentes; portanto, não substitui a auditoria do histórico original.
 
 ### 11.3. Pendências de reprodutibilidade
 
-- Fixar as versões de `chromadb` e `sentence-transformers` no `requirements.txt`.
+- Fixar ou documentar versões das dependências críticas, especialmente `chromadb`, `sentence-transformers` e `google-genai`.
+- Confirmar que os arquivos de avaliação necessários à auditoria estão versionados e acessíveis ao avaliador, respeitando o `.gitignore`.
 - Confirmar que `data/`, credenciais e demais arquivos locais não destinados ao repositório estão no `.gitignore`.
-- Documentar no README o procedimento de obtenção do dataset, sem versionar os dados originais.
-- Preservar ou documentar os pré-rótulos utilizados no cálculo da concordância entre anotadores, o modelo empregado e a modalidade de ponderação do κ.
+- Documentar no README a obtenção do dataset e a configuração local da API, sem publicar credenciais ou versionar os dados originais.
+- Executar novamente a suíte completa de testes após as últimas alterações no controle de versão do prompt.
 
 ---
 
@@ -579,22 +743,24 @@ A comparação entre a recuperação original e o filtro de 30 caracteres utiliz
 **Concluído:**
 
 - Configuração do ambiente Python e Git e criação do repositório GitHub.
-- Download automatizado do dataset e análise exploratória.
-- Preparação, consolidação e validação da base com 42.138 documentos.
-- Geração local de embeddings e indexação persistente no ChromaDB, com distância cosseno.
-- Implementação do recuperador semântico com deduplicação, expansão adaptativa, rastreabilidade e sinalização de limites.
-- 41 testes aprovados na suíte completa (21 deles de recuperação).
-- Validação funcional com consultas reais ao índice.
-- Notebook 02 de avaliação executado: 19 perguntas, 270 pares rotulados em nove perguntas de domínio e Precision@10/20/30.
-- Comparação pareada do filtro de 30 caracteres concluída; decisão de manter a recuperação original.
-- Limitações de polaridade, suficiência e consultas vagas documentadas.
+- Download automatizado do dataset, análise exploratória e preparação de 42.138 documentos.
+- Geração local de embeddings e indexação persistente no ChromaDB.
+- Recuperação semântica com deduplicação, expansão adaptativa e rastreabilidade.
+- Notebook 02: avaliação da recuperação com 19 perguntas e 270 pares classificados manualmente nas nove perguntas de domínio; comparação do filtro de 30 caracteres concluída.
+- Integração com `gemini-3.8-flash` em `src/rag.py`, incluindo geração fundamentada, citações, abstenções e tratamento de falhas transitórias.
+- Testes automatizados de geração adicionados; a suíte completa registrou 77 testes aprovados antes das últimas alterações de versionamento do prompt.
+- Notebook 03: 19 execuções válidas, avaliação humana de nove respostas e dez abstenções, precisão estrita das citações de 97/98 (99,0%) e cobertura das evidências diretas do top-20 de 97/108 (89,8%), com limitações documentadas.
+- Seção de auditoria das evidências disponibilizada no Notebook 03.
+- Linha de base de geração definida: `gemini-3.8-flash`, `top_k=20`, `temperature=0`, prompt `a128a1fe07c1`.
 
 **Pendente:**
 
-- Avaliação empírica de suficiência de evidência e recusa na etapa de geração; não usar limiar isolado de similaridade.
-- Etapa de transformação da pergunta além da normalização de espaços.
-- Verificação do limite de 128 tokens do modelo.
-- Escolha da LLM, geração das respostas e mecanismo de abstenção.
-- Interface Streamlit, README e vídeo de até 7 minutos.
+- Interface Streamlit.
+- Consolidação das instruções de instalação, execução e auditoria no README.
+- Verificação complementar do limite de 128 tokens do modelo de embeddings.
+- Etapa de transformação da pergunta além da normalização de espaços, conforme requisito identificado na seção 9.1.
+- Conferência final de versionamento dos arquivos de avaliação e das dependências.
+- Nova execução da suíte de testes e preparação do vídeo de demonstração de até 7 minutos.
+- Se houver necessidade demonstrada, comparar `top_k=20` e `top_k=30` para investigar cobertura em Q04 e Q07; não tratar essa comparação como já executada.
 
-**Próxima etapa:** implementar o Notebook 03 de geração fundamentada com LLM, iniciando em `top_k=20`, e avaliar a seleção de evidências, a rastreabilidade das citações e as recusas por insuficiência ou fora do escopo.
+**Próxima etapa:** implementar a interface Streamlit utilizando o pipeline RAG avaliado, sem alterar o prompt ou as regras de geração sem necessidade demonstrada.

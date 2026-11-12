@@ -1,0 +1,20 @@
+question_id,model,top_k,status,faithfulness,citation_quality,answer_quality,abstention_correct,notes,prompt_sha256
+Q01,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às evidências, 16 citações verificadas e diretamente relevantes  síntese adequada ao prompt.",a128a1fe07c1
+Q02,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às evidências; 19 citações pertinentes; síntese adequada, incluindo atrasos, impacto em obra e recorrência do problema.",a128a1fe07c1
+Q03,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel; 18 avaliações pertinentes confirmam entregas antecipadas, incluindo relatos de embalagens intactas e recomendações de compra.",a128a1fe07c1
+Q04,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às duas evidências diretas recuperadas  citações pertinentes,  síntese proporcional à quantidade limitada de fontes.",a128a1fe07c1
+Q05,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às duas avaliações citadas,  ambas confirmam divergência entre o produto anunciado e o entregue. Síntese adequada às evidências.",a128a1fe07c1
+Q06,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às três avaliações citadas,  evidências diretas de atendimento ruim e ausência de canal de reclamação,  síntese adequada.",a128a1fe07c1
+Q07,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às sete avaliações citadas; evidências diretas de reembolso não realizado, falta de resposta, recusa de devolução e demora no ressarcimento.",a128a1fe07c1
+Q08,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às 16 avaliações; evidências diretas de qualidade dos produtos, recomendações, custo-benefício e satisfação; síntese adequada.",a128a1fe07c1
+Q09,gemini-3.8-flash,20,respondida,2,2,2,,"Resposta fiel às 15 avaliações citadas; recomendações sustentadas por relatos de pontualidade, qualidade, atendimento e confiança. Síntese adequada.",a128a1fe07c1
+Q10,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: perguAbstenção correta: pergunta fora do escopo das avaliações históricas da Olist,  motivo adequado e nenhuma citação indevida.nta fora do escopo das avaliações históricas da Olist, motivo adequado e nenhuma citação indevida",a128a1fe07c1
+Q11,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: projeção de faturamento futuro não é sustentada pelas avaliações históricas,  motivo fora_do_escopo adequado e nenhuma citação indevida.",a128a1fe07c1
+Q12,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: cotação cambial atual está fora do escopo das avaliações históricas da Olist,  nenhuma citação indevida.",a128a1fe07c1
+Q13,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: avaliações históricas não comprovam a política institucional de frete da Olist em 2025,  motivo fora_do_escopo adequado.",a128a1fe07c1
+Q14,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta, sem citações indevidas. Inconsistência na classificação: evidencia_insuficiente em vez de fora_do_escopo.",a128a1fe07c1
+Q15,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: custos comerciais para anunciantes estão fora do escopo das avaliações históricas,  motivo adequado e nenhuma citação indevida.",a128a1fe07c1
+Q16,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: relatos históricos de reembolso não comprovam o prazo oficial vigente,  motivo fora_do_escopo adequado e nenhuma citação indevida",a128a1fe07c1
+Q17,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: pergunta excessivamente vaga, sem aspecto específico da entrega; motivo pergunta_vaga adequado e solicitação de esclarecimento pertinente.",a128a1fe07c1
+Q18,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção adequada às regras atuais do prompt: solicitação ampla, sem problema específico. Ressalva: poderia ser respondida como panorama exploratório em outra configuração do assistente.",a128a1fe07c1
+Q19,gemini-3.8-flash,20,abstencao,,,,1,"Abstenção correta: pergunta sem contexto suficiente; motivo pergunta_vaga adequado, sem citações indevidas.",a128a1fe07c1
