@@ -5,7 +5,7 @@
 
 Este documento registra as decisões técnicas adotadas no desenvolvimento do Tech Challenge — Fase 4, cujo objetivo é construir uma aplicação de Voice of Customer Intelligence baseada em Retrieval-Augmented Generation (RAG).
 
-A aplicação permitirá consultar avaliações de consumidores do dataset Olist, recuperando evidências relevantes para fundamentar respostas geradas por um modelo de linguagem.
+A aplicação permite consultar avaliações de consumidores do dataset Olist, recuperando evidências relevantes para fundamentar respostas geradas por um modelo de linguagem.
 
 As decisões são documentadas considerando quatro aspectos:
 
@@ -135,9 +135,7 @@ A base final contém 42.138 documentos.
 - Esses documentos representam aproximadamente 8,4% da base preparada.
 - A inspeção qualitativa identificou tanto avaliações informativas quanto expressões genéricas.
 
-O comprimento `n_chars` será preservado como metadado.
-
-Critérios adicionais de suficiência das evidências serão avaliados durante os testes de recuperação.
+O comprimento `n_chars` é preservado como metadado. A suficiência das evidências é avaliada durante a geração e a validação da resposta; o comprimento, isoladamente, não determina relevância.
 
 ---
 
@@ -197,7 +195,7 @@ A chave é construída com:
 | chegou antes do prazo | 56 |
 | ainda nao recebi o produto | 51 |
 
-A estratégia de deduplicação na recuperação será implementada e avaliada na etapa RAG.
+A estratégia de deduplicação foi implementada em `src/retrieve.py` e avaliada no Notebook 02. O campo `candidate_occurrences` se refere apenas aos candidatos examinados naquela consulta, não à frequência global do texto no corpus.
 
 ---
 
@@ -246,7 +244,7 @@ A estratégia de deduplicação na recuperação será implementada e avaliada n
 
 **Decisão:** não aplicar chunking.
 
-Cada avaliação será representada por um único documento.
+Cada avaliação é representada por um único documento.
 
 **Justificativa:** os textos são curtos, e a fragmentação poderia prejudicar a interpretação e a rastreabilidade das avaliações.
 
@@ -281,7 +279,7 @@ Cada avaliação será representada por um único documento.
 
 **Alternativa descartada:** depender apenas da execução manual do pipeline.
 
-**Evidência:** 20 testes aprovados, contemplando a construção de documentos e a geração de chaves de deduplicação.
+**Evidência histórica:** a fase inicial de preparação registrou 20 testes aprovados para construção de documentos e chaves de deduplicação. **Estado atual:** a suíte pré-commit passou com 96/96 testes no Windows em 13/11/2026 (uma versão intermediária passou com 97/97). Os 20 testes referem-se a uma etapa anterior, não ao total atual.
 
 Comando de execução:
 
@@ -336,7 +334,7 @@ Esses nomes não devem ser interpretados como identificações reais de lojas ou
 
 A recuperação por similaridade semântica não permite, isoladamente, determinar quais problemas são mais frequentes em toda a base.
 
-Na versão inicial, respostas de síntese deverão restringir suas conclusões às avaliações efetivamente recuperadas.
+Na versão atual, respostas de síntese restringem suas conclusões às avaliações efetivamente recuperadas. Perguntas exploratórias amplas são aceitas quando há evidências; não são produzidas frequências globais sem análise do corpus.
 
 ---
 
@@ -372,13 +370,13 @@ Na versão inicial, respostas de síntese deverão restringir suas conclusões �
 
 **Abstenções:** contemplam perguntas fora do escopo, perguntas vagas e evidência insuficiente. Erros técnicos não são classificados como abstenções legítimas.
 
-**Controle experimental:** a configuração de referência foi mantida com `top_k=20` e versão de prompt identificada pelo prefixo SHA-256 **`a128a1fe07c1`**. Mudanças futuras no prompt exigiriam nova avaliação antes de comparar resultados diretamente.
+**Controle experimental:** a avaliação histórica de 19 perguntas utilizou `top_k=20` e registra o prefixo SHA-256 **`a128a1fe07c1`** como identificador do prompt histórico. Esse vínculo foi mantido a partir dos registros e da conferência documental anterior; nesta revisão não foi possível recalcular independentemente o hash a partir de uma cópia integral e imutável do prompt original. Portanto, o identificador não deve ser apresentado como uma nova verificação criptográfica. Em 13/11/2026, as instruções foram alteradas para aceitar perguntas exploratórias amplas e distinguir melhor `pergunta_vaga` de `evidencia_insuficiente`; **o hash histórico não identifica o prompt atual**. A avaliação histórica não foi sobrescrita nem deve ser apresentada como avaliação integral da nova versão. O parâmetro `top_k=20` foi preservado.
 
 ---
 
 ## 10. Avaliação de geração e auditoria
 
-**Conjunto de avaliação:** 19 perguntas — 9 pertinentes ao domínio, 7 fora do escopo e 3 ambíguas. Os resultados e julgamentos humanos estão em `evaluation/generation_runs.jsonl` e `evaluation/generation_labels.csv`, respectivamente.
+**Conjunto histórico de avaliação (anterior aos ajustes de prompt):** 19 perguntas — 9 pertinentes ao domínio, 7 fora do escopo e 3 ambíguas. Os resultados e julgamentos humanos estão em `evaluation/generation_runs.jsonl` e `evaluation/generation_labels.csv`, respectivamente.
 
 | Métrica | Resultado |
 |---|---:|
@@ -393,7 +391,7 @@ Na versão inicial, respostas de síntese deverão restringir suas conclusões �
 
 **Interpretação:** precisão das citações mede a proporção de citações selecionadas julgadas diretamente pertinentes; cobertura mede a proporção das evidências diretas **presentes no top-20 recuperado** que foram citadas. Nenhuma das duas métricas representa cobertura de toda a base Olist.
 
-**Limitações observadas:** cobertura menor em Q04 (**2/5**) e Q07 (**7/12**); em Q14, a decisão de abstenção foi adequada, mas o motivo `evidencia_insuficiente` foi menos preciso que `fora_do_escopo`; Q18 foi considerada vaga conforme o prompt atual, embora outra configuração de produto pudesse aceitar uma consulta exploratória ampla. O tamanho reduzido e a seleção intencional do conjunto de teste limitam a generalização dos resultados.
+**Limitações observadas:** cobertura menor em Q04 (**2/5**) e Q07 (**7/12**); em Q14, a decisão de abstenção foi adequada, mas o motivo `evidencia_insuficiente` foi menos preciso que `fora_do_escopo`; Q18 foi considerada vaga conforme o **prompt histórico**, embora a versão atual aceite perguntas exploratórias amplas quando há evidências. O tamanho reduzido e a seleção intencional do conjunto de teste limitam a generalização dos resultados.
 
 **Auditoria:** o Notebook 03 permite conferir respostas, identificadores e textos citados, bem como notas humanas, a partir dos registros persistidos, sem novas chamadas ao Gemini. Os resultados históricos não devem ser confundidos com nova inferência.
 
@@ -405,7 +403,7 @@ Na versão inicial, respostas de síntese deverão restringir suas conclusões �
 
 **Consulta ao vivo:** carrega coleção ChromaDB e modelo de embeddings com cache; exibe síntese, evidências expandidas, abstenções e erros técnicos em estados separados.
 
-**Modo demonstração:** lê `evaluation/generation_runs.jsonl` e reproduz execuções válidas do Notebook 03 sem acessar Gemini ou carregar os embeddings. É útil para apresentação auditável quando a API está indisponível, mas não substitui a integração ao vivo.
+**Modo demonstração:** lê `evaluation/generation_runs.jsonl` e reproduz execuções válidas do Notebook 03 sem acessar Gemini ou carregar os embeddings. A interface informa explicitamente que esses resultados foram gerados com um prompt anterior e podem diferir das consultas ao vivo. É útil para apresentação auditável quando a API está indisponível, mas não substitui a integração ao vivo.
 
 **Tratamento de falhas:** o cliente Gemini usa timeout configurado de 90 segundos por chamada e até **duas tentativas**, com intervalo de **5 segundos** para erros transitórios tratados. Os códigos explicitamente classificados como repetíveis incluem 429, 500 e 503. Outros erros, incluindo 504, podem ser apresentados como falha técnica, sem presumir sucesso ou evidência insuficiente. O limite de tentativas foi reduzido de quatro para duas para preservar a cota gratuita.
 
@@ -417,20 +415,58 @@ Na versão inicial, respostas de síntese deverão restringir suas conclusões �
 
 ## 12. Testes e reprodutibilidade
 
-**Validação informada no ambiente de desenvolvimento:** **89 testes automatizados aprovados** (última execução em 7,31 segundos), instalação das dependências diretas sem erros e `python -m pip check` sem conflitos.
+**Decisão:** validar a execução do MVP em Linux e em uma instalação nova no Windows, mantendo Python 3.12 e dependências diretas fixadas em `requirements.txt`.
 
-**Dependências:** `requirements.txt` fixa versões diretas do ambiente Python 3.12; `requirements-lock.txt` registra o snapshot completo, incluindo pacotes CUDA/NVIDIA específicos do ambiente Linux. Isso melhora a rastreabilidade, mas não comprova instalação limpa em outro sistema operacional.
+**Testes automatizados:** **89/89 aprovados** na versão anterior no Linux (7,31 segundos) e no Windows com Python **3.12.10** (32,94 segundos). A versão intermediária dos ajustes registrou **97/97 aprovados no Windows** (17,69 segundos). Após a revisão pré-commit do prompt e da suíte, **96/96 aprovados no Windows** em 13/11/2026 (18,68 segundos). A contagem menor decorre da revisão dos testes e não representa, por si só, perda de funcionalidade. Não há registro de reexecução da suíte atualizada no Linux. O ambiente Windows foi preparado a partir da instalação do Python, criação de `.venv` e instalação das dependências. A execução bem-sucedida demonstra portabilidade nos dois ambientes testados, sem comprovar compatibilidade com qualquer sistema ou configuração.
 
-**Artefatos versionados:** notebooks 01–03, `evaluation/retrieval_candidates.csv`, `evaluation/retrieval_labels.csv`, `evaluation/generation_runs.jsonl`, `evaluation/generation_labels.csv` e este documento. Os dados brutos e o índice ChromaDB são locais e reconstruíveis pelos scripts `src/download_data.py`, `src/prepare_data.py` e `src/build_index_data.py`.
+**Pipeline de dados no Windows:** os scripts `src/download_data.py`, `src/prepare_data.py` e `src/build_index_data.py` foram executados nessa ordem. A preparação produziu **42.138 documentos**, o mesmo total observado no Linux. O ChromaDB foi reconstruído com o modelo `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, distância cosseno e 42.138 documentos. A recuperação foi verificada em um **processo Python separado** com `python -m src.retrieve "produto não chegou" --top-k 5`, retornando cinco avaliações relevantes.
 
-**Validação pendente:** não foi demonstrada uma instalação inteiramente limpa em outra máquina; a consulta ao vivo após a última redução de tentativas também não foi concluída devido às limitações externas observadas. Não afirmar essas etapas como executadas.
+**Interface e integração:** no Windows, foram validados os dois modos Streamlit: **Demonstração com resultados salvos** e **Consulta ao vivo**, esta última envolvendo recuperação vetorial e geração via Gemini. Portanto, a validação integrada que anteriormente estava pendente foi concluída.
 
+**Incidente de persistência HNSW:** após a primeira construção do índice no Windows, o teste interno de busca do indexador funcionou, mas a abertura do índice por um novo processo falhou em `collection.count()` com `Error loading hnsw index`. A falha foi reproduzida fora do Streamlit. Mover o projeto para `C:\Projetos` (fora do OneDrive) e recriar o ambiente virtual **não** corrigiu o índice já existente. Após preservar esse índice como backup e reconstruir `data/chroma` no diretório local, a recuperação independente e a consulta ao vivo passaram a funcionar. A causa-raiz **não foi identificada**; interferência do OneDrive é hipótese, não conclusão. A validação demonstra recuperação após reconstrução, não que o problema jamais voltará a ocorrer.
+
+**Dependências:** `requirements.txt` fixa as dependências diretas testadas; `requirements-lock.txt` registra o snapshot do ambiente Linux/Python 3.12, incluindo pacotes CUDA/NVIDIA específicos desse ambiente. O lock não é universal entre plataformas. A instalação Windows e a suíte de testes foram executadas com sucesso usando `requirements.txt`.
+
+**Artefatos versionados:** notebooks 01–03, `evaluation/retrieval_candidates.csv`, `evaluation/retrieval_labels.csv`, `evaluation/generation_runs.jsonl`, `evaluation/generation_labels.csv` e este documento. Os dados brutos e o índice ChromaDB permanecem locais e reconstruíveis.
+
+---
+
+## 12.1. Validação direcionada da versão atual — 13/11/2026
+
+**Objetivo:** verificar as mudanças do prompt sem substituir os experimentos históricos ou alterar o índice, os embeddings e a recuperação.
+
+| Consulta ao vivo | Resultado observado | Avaliação manual |
+|---|---|---|
+| Principais problemas relatados pelos clientes | Síntese qualitativa com 11 avaliações citadas e ressalva sobre frequência | Adequado |
+| Previsão do tempo para amanhã em São Paulo | Abstenção por `fora_do_escopo` | Adequado |
+| “Foi bom?” | Abstenção por `pergunta_vaga` | Adequado |
+| Reembolso em bitcoin após entrega por drone | Abstenção por `evidencia_insuficiente`, sem citações inventadas | Adequado após ajuste de prompt |
+| Problemas de atraso na entrega | Síntese sustentada por 7 avaliações citadas | Adequado |
+| Dificuldades de contato com vendedores | Síntese sustentada por 8 avaliações citadas | Adequado |
+| Produtos diferentes dos anunciados | Síntese sustentada por 5 avaliações citadas | Adequado |
+
+**Escopo e limitação:** os sete casos foram revisados manualmente a partir das saídas da interface, sem nova rotulagem independente ou cálculo de métricas populacionais. A validação de IDs no código não substitui a avaliação semântica das citações. A ausência de evidência no conjunto recuperado não prova ausência do fato em toda a base. O teste de bitcoin/drone foi inicialmente classificado como `pergunta_vaga`; após revisão das instruções, a nova consulta retornou `evidencia_insuficiente`.
+
+
+### 12.2. Verificação pré-commit da versão revisada — 13/11/2026
+
+Após remover exemplos literais do prompt para reduzir o risco de validação circular, foram executadas **três perguntas inéditas** de abstenção no modo ao vivo:
+
+| Pergunta | Classificação observada | Resultado |
+|---|---|---|
+| Qual é a capital da Austrália? | `fora_do_escopo` | Abstenção sem resposta de conhecimento geral |
+| E quanto a isso? | `pergunta_vaga` | Pedido de especificação do tema |
+| Quais compradores receberam um reembolso em criptomoedas após uma entrega feita por submarino? | `evidencia_insuficiente` | Abstenção sem casos ou citações inventadas |
+
+Uma quarta consulta perguntou **quais reclamações relacionadas à entrega aparecem com maior frequência**. O Gemini apresentou síntese qualitativa sustentada por **11 avaliações citadas** e declarou explicitamente que as avaliações recuperadas não permitem medir a frequência estatística no corpus completo. A resposta não constitui ranking populacional.
+
+O aviso do modo demonstração foi atualizado e verificado em captura de tela: os resultados são históricos, provenientes do Notebook 03, e podem diferir do prompt atual. A suíte automatizada passou com **96/96 testes no Windows (18,68 segundos)** após essas alterações. Os testes com mocks verificam contratos e regras locais, **não** comprovam generalização do LLM. As quatro consultas adicionais são verificações pontuais, não nova avaliação sistemática das 19 perguntas históricas.
 ---
 
 ## 13. Estado final do MVP e próximos passos opcionais
 
 **Concluído:** preparação, indexação, recuperação semântica, geração fundamentada, avaliações manuais, auditoria das evidências, interface Streamlit, demonstração offline e suíte automatizada.
 
-**Melhorias futuras possíveis, não implementadas:** ampliar o conjunto de perguntas e avaliações humanas; comparar configurações de recuperação e geração; testar instalação limpa; avaliar outras opções de hospedagem/modelo e monitoramento operacional.
+**Melhorias futuras possíveis, não implementadas:** ampliar o conjunto de perguntas e avaliações humanas; comparar configurações de recuperação e geração; investigar a causa-raiz do incidente HNSW; avaliar outras opções de hospedagem/modelo e monitoramento operacional.
 
-**Decisão de encerramento:** preservar a configuração avaliada e concluir a documentação e a entrega do Tech Challenge, sem novas alterações de prompt ou arquitetura não justificadas pelos testes.
+**Decisão de encerramento:** preservar a versão pré-commit validada em 96 testes automatizados no Windows, sete consultas direcionadas anteriores e quatro consultas adicionais pré-commit, concluir a documentação e preparar a entrega do Tech Challenge. Os resultados do Notebook 03 permanecem identificados como históricos, sem alegação de reavaliação completa do novo prompt.

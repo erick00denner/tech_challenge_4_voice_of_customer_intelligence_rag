@@ -35,7 +35,18 @@ python -m pip install -r requirements.txt
 python -m pip check
 ```
 
-No Windows, adapte a ativação do ambiente virtual. O `requirements.txt` fixa as versões **diretas** utilizadas no ambiente de referência. `requirements-lock.txt` registra também dependências transitivas do ambiente Linux/Python 3.12, inclusive pacotes específicos de CUDA; não deve ser tratado como lock universal para todas as plataformas.
+No **Windows (CMD)**, use os comandos abaixo na raiz do projeto:
+
+```cmd
+py -3.12 -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+python -m pip check
+```
+
+O projeto foi validado em uma instalação nova no Windows com **Python 3.12.10**. Ambientes virtuais não devem ser copiados entre máquinas ou movidos entre diretórios: recrie `.venv` no local definitivo do projeto.
+
+O `requirements.txt` fixa as versões **diretas** utilizadas no ambiente de referência. `requirements-lock.txt` registra também dependências transitivas do ambiente Linux/Python 3.12, inclusive pacotes específicos de CUDA; não deve ser tratado como lock universal para todas as plataformas.
 
 ## Configuração da API
 
@@ -94,7 +105,7 @@ Selecione **Demonstração com resultados salvos** e escolha uma pergunta do Not
 - **Q12:** abstenção por pergunta fora do escopo.
 - **Q19:** abstenção por pergunta vaga.
 
-Os resultados são históricos e devem ser identificados como tal na apresentação.
+Os resultados são históricos, foram gerados com uma versão anterior do prompt e podem diferir das consultas ao vivo. A interface exibe esse aviso explicitamente.
 
 ## Testes
 
@@ -102,7 +113,7 @@ Os resultados são históricos e devem ser identificados como tal na apresentaç
 python -m pytest -q
 ```
 
-**Última validação informada:** 89 testes aprovados em 7,31 segundos, com `pip check` sem conflitos, no ambiente de desenvolvimento do projeto. Esse resultado não equivale a uma instalação limpa validada em outro computador. Alguns testes da interface requerem `evaluation/generation_runs.jsonl` disponível.
+**Histórico de validação:** **89/89 testes aprovados** na validação original no Linux (7,31 segundos) e no Windows com Python 3.12.10 (32,94 segundos). Após a revisão pré-commit do prompt e dos testes, **96/96 testes aprovados no Windows** (18,68 segundos, execução informada em 13/11/2026). A versão intermediária havia registrado 97/97 testes (17,69 segundos); a diferença decorre da revisão dos testes, não de uma nova avaliação completa do Gemini. A suíte atualizada não foi reexecutada no Linux. A instalação das dependências, a preparação dos dados e a reconstrução do índice também foram verificadas no Windows. Esses resultados demonstram a execução nos ambientes testados, não compatibilidade universal com qualquer plataforma. Alguns testes da interface requerem `evaluation/generation_runs.jsonl` disponível.
 
 ## Avaliação e rastreabilidade
 
@@ -117,7 +128,66 @@ python -m pytest -q
 | `evaluation/generation_labels.csv` | Notas e observações da avaliação humana |
 | `docs/decisoes_tecnicas.md` | Decisões, métricas e limitações |
 
-**Resultados de geração (19 perguntas):** 9 respostas avaliadas, médias 2,00/2 em fidelidade, qualidade das citações e qualidade da resposta; 10/10 decisões de abstenção consideradas adequadas. Precisão estrita das citações: **97/98 (99,0%)**; cobertura das evidências diretas presentes no top-20: **97/108 (89,8%)**. Esses números descrevem o conjunto avaliado, não desempenho garantido em produção.
+**Resultados históricos de geração, anteriores aos ajustes de prompt (19 perguntas):** 9 respostas avaliadas, médias 2,00/2 em fidelidade, qualidade das citações e qualidade da resposta; 10/10 decisões de abstenção consideradas adequadas. Precisão estrita das citações: **97/98 (99,0%)**; cobertura das evidências diretas presentes no top-20: **97/108 (89,8%)**. Esses números descrevem o conjunto avaliado, não desempenho garantido em produção.
+
+## Arquitetura e fluxo RAG
+
+```text
+Pergunta do usuário (Streamlit)
+          |
+          v
+Normalização de espaços (`src/retrieve.py`)
+          |
+          v
+Embedding da pergunta (Sentence Transformers, local)
+          |
+          v
+Busca vetorial no ChromaDB + deduplicação por `dedup_key`
+          |
+          v
+Até 20 avaliações selecionadas (`top_k=20`)
+          |
+          v
+Contexto textual + instruções de segurança (`src/rag.py`)
+          |
+          v
+Gemini -> JSON estruturado -> validação de IDs e estado
+          |
+          v
+Resposta, evidências citadas ou abstenção (Streamlit)
+```
+
+**Ingestão (executada antes das consultas):** download do dataset Olist -> seleção e limpeza -> consolidação por `review_id` -> embeddings locais -> índice persistente ChromaDB. O modelo Gemini **não** consulta diretamente o CSV completo: recebe apenas o contexto recuperado. A aplicação não calcula ranking estatístico de reclamações no corpus.
+
+## Exemplos de perguntas e respostas observadas
+
+Os textos abaixo são **transcrições literais de consultas ao vivo realizadas em 13/11/2026**, registradas nas capturas de validação. Não são respostas recalculadas ao abrir o README. Os resultados dependem das avaliações recuperadas e do prompt utilizado na ocasião.
+
+**Pergunta:** Quais são as reclamações relacionadas à entrega que aparecem com maior frequência entre os clientes?
+
+**Resposta observada (11 avaliações citadas):**
+
+> As avaliações recuperadas não permitem medir a frequência estatística das ocorrências no corpus completo, mas apontam os principais temas de insatisfação. Os clientes relatam atrasos excessivos, prazos prolongados e pedidos não entregues mesmo após o pagamento. Também são mencionadas entregas divididas ou parciais sem aviso prévio, além de comunicação deficiente e informações confusas sobre o status do envio.
+
+**Pergunta:** Qual é a capital da Austrália?
+
+**Resposta observada (`fora_do_escopo`, sem citações):**
+
+> A pergunta não tem relação com a experiência de compra descrita nas avaliações de consumidores, tratando-se de um tema de conhecimentos gerais que está fora do escopo desta análise.
+
+**Pergunta:** E quanto a isso?
+
+**Resposta observada (`pergunta_vaga`, sem citações):**
+
+> A pergunta é vaga e não apresenta um assunto ou referência identificável para análise nas avaliações. Por favor, forneça mais detalhes ou especifique o tema sobre a experiência de compra que deseja consultar.
+
+**Pergunta:** Quais compradores receberam um reembolso em criptomoedas após uma entrega feita por submarino?
+
+**Resposta observada (`evidencia_insuficiente`, sem citações):**
+
+> Não foram encontradas evidências nas avaliações que relatem compradores recebendo reembolso em criptomoedas ou entregas realizadas por submarino. Os relatos disponíveis tratam de outros problemas comuns de entrega e reembolsos convencionais.
+
+**Outras validações documentadas:** pergunta exploratória geral (11 avaliações citadas); atraso na entrega (7); dificuldades de contato com vendedores (8); produtos diferentes dos anunciados (5); e três cenários de abstenção anteriores à revisão pré-commit. As **sete consultas anteriores e as quatro consultas pré-commit** constituem verificações manuais direcionadas, não uma taxa de acerto estatisticamente representativa. O prompt atual não contém os exemplos literais de abstenção utilizados na primeira rodada; os resultados históricos do Notebook 03 permanecem separados.
 
 ## Estrutura do repositório
 
@@ -135,6 +205,20 @@ requirements-lock.txt       # Snapshot completo do ambiente de referência
 data/                       # Dados e índice locais, não versionados
 ```
 
+## Validação de ponta a ponta no Windows
+
+A validação foi realizada em uma máquina Windows com Python 3.12.10, partindo de uma instalação nova de dependências. Foram confirmados:
+
+1. Instalação e execução dos **89 testes automatizados da versão original**; posteriormente, **96 testes da versão pré-commit** passaram no Windows (uma versão intermediária registrou 97).
+2. Download dos dados Olist e preparação de **42.138 documentos**, em concordância com o ambiente Linux.
+3. Reconstrução do índice ChromaDB com **42.138 documentos**, embeddings `paraphrase-multilingual-MiniLM-L12-v2` e distância cosseno.
+4. Recuperação independente pelo comando `python -m src.retrieve "produto não chegou" --top-k 5`, com cinco avaliações retornadas.
+5. Funcionamento do Streamlit tanto em **Consulta ao vivo** (Gemini + ChromaDB) quanto em **Demonstração com resultados salvos**.
+
+**Incidente observado:** o primeiro índice construído no Windows funcionou no teste interno de indexação, mas apresentou `Error loading hnsw index` quando aberto por um novo processo Python. Mover o projeto para fora do OneDrive e recriar o ambiente virtual não resolveu o erro naquele índice. Após preservar o índice anterior como backup e reconstruir `data/chroma` no diretório local, a recuperação independente e a consulta ao vivo funcionaram. **A causa-raiz não foi determinada**; não é possível atribuí-la comprovadamente ao OneDrive.
+
+Se esse erro ocorrer, primeiro encerre os processos que utilizam o ChromaDB e teste a recuperação diretamente. Preserve o índice problemático antes de reconstruir o índice a partir de `data/processed/olist_reviews_clean.csv` com `python -m src.build_index_data`. Não é necessário repetir download e preparação se o CSV processado estiver íntegro.
+
 ## Limitações conhecidas
 
 - A qualidade da síntese depende das avaliações recuperadas; fidelidade às citações não implica cobertura completa da base.
@@ -142,6 +226,7 @@ data/                       # Dados e índice locais, não versionados
 - A API Gemini está sujeita a cotas e erros externos. No plano gratuito observado, o painel indicou **5 RPM** e **20 RPD**; esses valores são específicos daquele projeto e podem mudar.
 - O cliente realiza **até duas tentativas por consulta**, com espera de **5 segundos** entre tentativas para falhas transitórias tratadas. Isso limita o consumo de cota, mas não garante disponibilidade.
 - O modo demonstração é reprodutível a partir de resultados salvos, não substitui uma execução ao vivo.
+- A persistência HNSW apresentou um incidente de leitura no Windows, resolvido após reconstrução do índice; a causa não foi confirmada.
 - O projeto é um MVP acadêmico, sem autenticação, persistência de conversas ou garantia de disponibilidade de serviço.
 
 ## Fonte dos dados

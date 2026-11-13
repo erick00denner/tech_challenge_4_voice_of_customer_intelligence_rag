@@ -31,9 +31,9 @@ def grounded():
     }
 
 
-def mock_retrieval(monkeypatch, reviews):
-    """Replace semantic retrieval with a deterministic result."""
-    retrieval = {"query": "Produto não entregue?", "reviews": reviews}
+def mock_retrieval(monkeypatch, reviews, query="Produto não entregue?"):
+    """Replace semantic retrieval with a deterministic result for the given query."""
+    retrieval = {"query": query, "reviews": reviews}
     mocked = Mock(return_value=retrieval)
     monkeypatch.setattr(rag, "retrieve_reviews", mocked)
     return mocked
@@ -346,3 +346,81 @@ def test_create_llm_client_sets_request_timeout(monkeypatch):
     monkeypatch.setattr(rag.genai, "Client", lambda **kwargs: captured.update(kwargs))
     rag.create_llm_client("key")
     assert captured["http_options"].timeout == rag.LLM_TIMEOUT_MS
+
+
+@pytest.mark.parametrize("question", [
+    "Quais são os principais problemas relatados pelos clientes?",
+    "Problemas com a compra",
+    "Quais reclamações relacionadas à entrega aparecem com maior frequência?",
+])
+def test_exploratory_questions_are_supported_in_prompt(monkeypatch, reviews, grounded, question):
+    """Allow evidence-grounded exploratory synthesis without corpus-wide claims."""
+    mock_retrieval(monkeypatch, reviews, query=question)
+    llm = mock_llm(monkeypatch, grounded)
+    result = rag.generate_answer(
+        question=question,
+        collection=object(),
+        embedding_model=object(),
+        llm_client=object(),
+        llm_model="gemini-test",
+    )
+    assert result["status"] == "respondida"
+    prompt = llm.call_args.args[2]
+    assert question in prompt
+    assert "sem extrapolar frequências para o corpus" in prompt
+    assert "review_001" in prompt
+
+
+def test_system_instruction_distinguishes_exploratory_from_vague():
+    """Describe broad questions and vague questions without memorized examples."""
+    instruction = rag.SYSTEM_INSTRUCTION
+    assert "Perguntas exploratórias amplas" in instruction
+    assert "pergunta_vaga: não é possível identificar o objeto" in instruction
+    assert "não afirme quais problemas são os mais frequentes" in instruction
+    assert "evidencia_insuficiente" in instruction
+
+
+def test_system_instruction_does_not_embed_validation_questions():
+    """Keep live validation questions out of the system instruction."""
+    validation_questions = (
+        "Problemas com a compra",
+        "Foi bom?",
+        "Quais clientes receberam reembolso em bitcoin após uma entrega realizada por drone?",
+    )
+    assert all(question not in rag.SYSTEM_INSTRUCTION for question in validation_questions)
+
+
+def test_abstention_reason_guidance_covers_cases():
+    """Verify that the prompt distinguishes abstention reasons."""
+    instruction = rag.SYSTEM_INSTRUCTION.lower()
+
+    for reason in rag.INSUFFICIENCY_REASONS:
+        assert reason in instruction
+
+    assert "não é vaga apenas porque descreve uma situação" in instruction
+
+
+def test_specific_unsupported_question_preserves_abstention(monkeypatch, reviews):
+    """Preserve a grounded abstention with no fabricated citations."""
+    question = (
+        "Quais clientes receberam reembolso em bitcoin "
+        "após uma entrega realizada por drone?"
+    )
+    mock_retrieval(monkeypatch, reviews, query=question)
+    llm = mock_llm(monkeypatch, {
+        "answer": "As avaliações recuperadas não comprovam essa situação.",
+        "cited_review_ids": [],
+        "insufficient_evidence": True,
+        "insufficiency_reason": "evidencia_insuficiente",
+    })
+    result = rag.generate_answer(
+        question=question,
+        collection=object(),
+        embedding_model=object(),
+        llm_client=object(),
+        llm_model="gemini-test",
+    )
+    assert result["status"] == "abstencao"
+    assert result["insufficiency_reason"] == "evidencia_insuficiente"
+    assert result["cited_review_ids"] == []
+    assert question in llm.call_args.args[2]

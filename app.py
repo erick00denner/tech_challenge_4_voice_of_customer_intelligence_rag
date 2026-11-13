@@ -106,7 +106,12 @@ def load_recorded_runs(path: str) -> list[dict]:
 
 def render_recorded_mode() -> None:
     """Show saved experimental results without loading embeddings or calling Gemini."""
-    st.info("Modo demonstração: resultados históricos do Notebook 03, sem nova execução do RAG.")
+    st.info(
+        "Modo demonstração: reprodução de resultados históricos do Notebook 03, "
+        "gerados com uma versão anterior do prompt. Não há nova execução do RAG "
+        "nem chamada ao Gemini. As respostas podem diferir das consultas ao vivo "
+        "realizadas com a versão atual."
+    )
     if not RECORDED_RUNS_PATH.is_file():
         st.error("Arquivo de demonstração ausente: evaluation/generation_runs.jsonl")
         return
