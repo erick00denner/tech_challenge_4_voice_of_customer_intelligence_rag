@@ -113,7 +113,7 @@ Os resultados são históricos, foram gerados com uma versão anterior do prompt
 python -m pytest -q
 ```
 
-**Histórico de validação:** **89/89 testes aprovados** na validação original no Linux (7,31 segundos) e no Windows com Python 3.12.10 (32,94 segundos). Após a revisão pré-commit do prompt e dos testes, **96/96 testes aprovados no Windows** (18,68 segundos, execução informada em 13/11/2026). A versão intermediária havia registrado 97/97 testes (17,69 segundos); a diferença decorre da revisão dos testes, não de uma nova avaliação completa do Gemini. A suíte atualizada não foi reexecutada no Linux. A instalação das dependências, a preparação dos dados e a reconstrução do índice também foram verificadas no Windows. Esses resultados demonstram a execução nos ambientes testados, não compatibilidade universal com qualquer plataforma. Alguns testes da interface requerem `evaluation/generation_runs.jsonl` disponível.
+**Estado atual:** **96/96 testes aprovados** no Windows (Python 3.12.10, 18,68 s, execução de 13/11/2026) e em uma execução Linux de revisão. A contagem anterior (89) cresceu com os testes do prompt e do modo demonstração; a versão intermediária (97) foi revisada. A instalação das dependências, a preparação dos dados e a reconstrução do índice também foram verificadas no Windows. Esses resultados demonstram a execução nos ambientes testados, não compatibilidade universal com qualquer plataforma. Alguns testes da interface requerem `evaluation/generation_runs.jsonl` disponível.
 
 ## Avaliação e rastreabilidade
 
@@ -161,7 +161,7 @@ Resposta, evidências citadas ou abstenção (Streamlit)
 
 ## Exemplos de perguntas e respostas observadas
 
-Os textos abaixo são **transcrições literais de consultas ao vivo realizadas em 13/11/2026**, registradas nas capturas de validação. Não são respostas recalculadas ao abrir o README. Os resultados dependem das avaliações recuperadas e do prompt utilizado na ocasião.
+Os textos abaixo são **transcrições literais de consultas ao vivo realizadas em 13/11/2026**, registradas nas capturas de validação em [`docs/evidencias/`](docs/evidencias/). Não são respostas recalculadas ao abrir o README. Os resultados dependem das avaliações recuperadas e do prompt utilizado na ocasião.
 
 **Pergunta:** Quais são as reclamações relacionadas à entrega que aparecem com maior frequência entre os clientes?
 
